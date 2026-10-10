@@ -1,0 +1,16 @@
+[package]
+name = "flowlens"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Review a change to Rust code without reading it: each feature's steps before and now, side by side, on one interactive page."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["code-review", "static-analysis", "call-graph", "visualization", "git"]
+categories = ["development-tools", "command-line-utilities", "visualization"]
+include = ["/src", "/tests", "/README.md", "/RUNNING.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/Cargo.toml", "/Cargo.lock"]
+
+[dependencies]
+petgraph = "0.8.3"
+ra_ap_syntax = "0.0.293"
+indexmap = "2"

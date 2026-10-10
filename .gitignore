@@ -1,0 +1,9 @@
+/target
+
+# Output the tool writes when run from the repository root
+/out
+/review.html
+/map.html
+*.dot
+*.svg
+*.png

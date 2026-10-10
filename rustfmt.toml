@@ -1,0 +1,8 @@
+fn_call_width=2000
+max_width=2000
+
+single_line_if_else_max_width = 300
+struct_lit_width = 220
+struct_variant_width = 220
+array_width = 220
+chain_width = 220
