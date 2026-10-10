@@ -9,7 +9,7 @@ project. For what the output means, see [README.md](README.md).
 
 | Tool | Why | Check with |
 | --- | --- | --- |
-| Rust (stable, 1.85 or newer) | installs the tool | `cargo --version` |
+| Rust (stable, 1.86 or newer) | installs the tool | `cargo --version` |
 | git | fetches the "before" version for a review | `git --version` |
 | tar | unpacks that version into a temporary folder | `tar --version` |
 | A web browser | opens the generated page | — |
@@ -134,25 +134,7 @@ can send it to someone else as is.
 
 ---
 
-## 5. Other outputs
-
-These explore a codebase rather than a change, and do not need git:
-
-```bash
-flowlens . --html map.html          # interactive explorer of every function
-flowlens .                          # text report in the terminal
-flowlens . --stats                  # counts only
-flowlens . --files deps.dot         # file dependency graph (Graphviz)
-flowlens . --dot calls.dot          # function call graph (Graphviz)
-flowlens --help                     # every option
-```
-
-Rendering the `.dot` files needs Graphviz (`sudo apt install graphviz`); see the
-README for details.
-
----
-
-## 6. Running the tests
+## 5. Running the tests
 
 ```bash
 cargo test
@@ -172,5 +154,7 @@ system's temp folder, so they need `git` and `tar` too.
 | `cannot find 'X' in this repository` | The `--against` name is wrong; check it with `git log --oneline` or `git branch`. |
 | `found no Rust files under ...` | Point it at the crate or workspace folder (the one with `Cargo.toml`), not its parent. |
 | `cannot write review.html` | The output folder does not exist; create it with `mkdir -p`. |
+| `nothing to do: add --review ...` | Add `--review`: `flowlens . --review`. |
+| `the review page's name must end in .html` | Name the page `something.html`, or leave the name out for `review.html`. |
 | The page says *nothing changed*, but you changed something | The change is not in Rust code the crate builds (for example a test file under `tests/`, or a file not reachable through `mod`), or it was already committed. Try `--against HEAD~1`. |
 | `error[E0...]` while building | Update Rust: `rustup update stable`. |

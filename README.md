@@ -1,15 +1,19 @@
 # flowlens
 
-See what your code does now, next to what it did before — without reading the
-code.
+See how your Rust code flows — without reading the code.
 
-Built for reviewing changes you did not write line by line, such as an AI
-edit. It does not show you a diff. It shows each **feature** of the program,
-the steps it took before the change and the steps it takes now, side by side,
-with the differences marked. Features that did not change are listed as
-working the same, so you can see the edit did not touch them either.
+It draws the program as a map: each **feature** (a place where the program
+starts doing something), what it calls in the order it calls it, and for every
+function the steps it takes, in plain words — calls, decisions, loops and the
+ways it can end. The code is always one click away for anyone who does want to
+read it.
 
-The code is always one click away for anyone who does want to read it.
+When the project is in git, the same page also shows **what a change did** —
+useful for an edit you did not write line by line, such as an AI's. Not a diff:
+each feature's steps before and now, side by side, with the differences
+marked, and the features the change did not touch listed as working the same.
+
+See what it looks like in the [screenshots](docs/gallery/README.md).
 
 ---
 
@@ -311,283 +315,9 @@ hide a feature that broke.
   shows as *details changed* rather than as a step.
 - It shows what the code *says* it does. It does not run anything yet, so it
   cannot show different results for the same input.
-
----
-
-# Exploring a codebase
-
-The rest of the tool answers a different question: how does this crate fit
-together? It indexes the code the way an IDE does and shows how **your own**
-functions connect.
-
-```bash
-flowlens . --html map.html
-```
-
-## What you get
-
-One self-contained page — no server, no network, no build step. For every
-function:
-
-- **Signature**, one parameter per line with its type, and the return type
-- **Documentation**, the full `///` comment
-- **Called by** — every caller, with file and line
-- **Calls in order** — the body read top to bottom (see below)
-- **A small map** — callers above, callees below, all clickable
-
-### Calls in order
-
-Not an alphabetical list — the calls in the order they run, each showing the
-arguments passed, what comes back, and the variable it lands in:
-
-```
- 94   lines = LineIndex::new(src) → Self
-105   (imports, globs) = collect_imports(&root) → (HashMap<String, String>, Vec<String>)
-106   symbols = collect_symbols(&root, src, &lines) → Vec<Symbol>
-107   lookup = Lookup::build(&symbols) → Self
-108   references = collect_references(&root, src, &lines, …) → Vec<Reference>
-```
-
-Calls are **nested inside the loops and branches they actually sit in**, so the
-list reads as the shape of the body rather than a flat sequence:
-
-```
- 42   setup()
-  ┌ for f in &ws.files                              runs repeatedly
-  │ 45   index = index_file_in(&display, &src, …) → FileIndex
-  │  ┌ if f.is_root()                               may not run
-  │  │ 48   register(index)
-  │  └
-  └
- 51   finish()
-```
-
-A call inside a `for` runs many times; a call inside an `if` may not run at
-all. `if` and `else` are told apart, `match` arms carry their pattern, and a
-closure body is marked deferred rather than conditional. Context stops at the
-function boundary — a nested `fn` starts fresh.
-
-The value is followed through `?`, `.await`, casts and postfix calls, so
-`let ws = Workspace::load(p)?` credits `ws` to `Workspace::load`. A call used
-as an argument, a condition, or a match scrutinee stores nothing and says so
-rather than borrowing an unrelated name.
-
-`std` and dependency calls are left out by default. The checkbox above the list
-folds them back in, in the same order, so you can read the real sequence when
-you need to.
-
-### Hiding what you do not care about
-
-Hovering a function in the sidebar shows a `×`; hovering a filename shows
-**hide file**. Either removes it from the sidebar, from every flow list, and
-from every caller list — useful for pushing generated code, test modules, or a
-noisy helper out of the way.
-
-A bar at the top of the sidebar counts what is hidden and restores it with
-**show all**. The choice is kept per crate in `localStorage`, so it survives a
-reload.
-
-Search filters by name, file, or doc text (press `/`). Checkboxes narrow to
-public or documented functions. Clicking any name jumps to it, so you can walk
-the call chain. The URL updates, so a link lands where you left it.
-
-If nothing is selected, the page opens on **entry points** — functions nothing
-else calls, which are the natural places to start reading an unfamiliar crate.
-
-### Why not just a big graph?
-
-There is one (`--dot`), but for this crate it renders 138 nodes at
-3968×5060 points. Technically complete, practically a wall. The interactive
-page shows one function at a time, which is the question you actually have.
-
----
-
-## The text report
-
-If you would rather read than click:
-
-```bash
-flowlens .
-```
-
-Prints to the terminal. The `.` is the path to analyze. Given a directory, the `mod` tree is
-followed from the crate root and calls are resolved across files.
-
----
-
-## Saving the output
-
-The report goes to stdout, so redirect it:
-
-```bash
-mkdir -p out
-flowlens . > out/report.txt
-```
-
-The report runs to about 1,100 lines for this crate. To shorten it:
-
-```bash
-flowlens . --stats          # about 15 lines
-flowlens . --no-outline     # drops the definition listing
-flowlens . | less        # page through it
-```
-
----
-
-## Seeing the graph
-
-Two steps: generate a `.dot` file, then render it. A `.dot` file is a **text
-description** of a graph, not an image.
-
-### 1. Generate
-
-```bash
-mkdir -p out
-flowlens . --files out/deps.dot     # file dependency graph
-flowlens . --dot   out/calls.dot    # function call graph
-```
-
-`mkdir -p out` first — the tool errors rather than creating the directory.
-
-**Start with `deps.dot`.** It has one node per file (10 for this crate) and is
-readable at a glance. `calls.dot` has a node per function — 127 here — and is
-a wall unless you are hunting something specific.
-
-### 2. Render
-
-**Option A — online, nothing to install.**
-
-Open <https://dreampuf.github.io/GraphvizOnline>, clear the sample, and paste
-the contents of your `.dot` file.
-
-**Option B — locally.**
-
-```bash
-sudo apt install graphviz          # not installed by default
-
-dot -Tsvg out/deps.dot  -o out/deps.svg
-dot -Tsvg out/calls.dot -o out/calls.svg
-```
-
-Then open the `.svg`:
-
-```bash
-xdg-open out/deps.svg      # or: firefox out/deps.svg
-```
-
-SVG rather than PNG so you can zoom without it going blurry — which matters
-once a graph has a hundred nodes.
-
-If `dot` gives a cramped layout on something large, try the other engines:
-`fdp`, `sfdp`, `neato`, `twopi`. Same flags.
-
-### What a node tells you
-
-```
-        index_file
-        L81
-        ———
-        Index a single file with
-        no crate context.
-```
-
-Name, where it is defined, then the first sentence of its doc comment. Fill
-colour is visibility — green `pub`, amber `pub(crate)`, grey private, blue for
-`main`.
-
-**Hover a node in the SVG** for the full picture: the complete signature and
-the entire doc comment, not just the summary. This only works in a browser, so
-it is a reason to render `-Tsvg` rather than `-Tpng`.
-
-Undocumented functions simply show name and line. If the graph looks bare,
-that is the codebase telling you something — the report header prints a
-documentation coverage figure for exactly this reason:
-
-```
-29/43 public function(s) documented (67%)
-```
-
-Doc summaries widen the nodes. For a tighter layout on a large crate:
-
-```bash
-flowlens . --dot out/calls.dot --no-docs
-```
-
-Tooltips keep the full documentation either way.
-
----
-
-## Reading the report
-
-Sections, in order:
-
-| Section | What it tells you |
-| --- | --- |
-| `FILES` | One row per file: definitions, references out, references in |
-| `FILE INTERLINKING` | Which files depend on which, and how heavily |
-| `OUTLINE` | Every definition, grouped by module and `impl` block, with its doc summary |
-| `USER-DEFINED CALLS` | **The main event** — what each function calls, your code only |
-| `CALLERS OF EACH DEFINITION` | The reverse: who calls this? (crate-wide) |
-| `ENTRY POINTS & UNREFERENCED` | Roots, and dead-code candidates |
-| `LIBRARY DEPENDENCIES` | `std` and crates, summarised and kept separate |
-| `DIAGNOSTICS` | What could not be resolved, and why |
-
-Markers in the call sections:
-
-```
-→   calls something in the same file
-⇒   calls something in another file of this crate
-⇢   matched by unique method name — a good bet, but a bet
-?   the name matches several definitions
-```
-
----
-
-## Options
-
-```
---review [OUT.html] before/after review of each feature (default review.html)
---against <REF>     what "before" means for --review (default HEAD)
---html <OUT.html>   interactive explorer — the readable option
---dot <OUT.dot>     write the call graph instead of the report
---files <OUT.dot>   write the file-dependency graph (best for large crates)
---all               include std and dependency calls, excluded by default
---no-outline        skip the per-file definition listing
---no-docs           leave doc summaries off the graph, for a compact layout
---cfg <OUT.dot>     write per-function control-flow graphs
---stats             print counts only
--h, --help          usage
-```
-
-### Control-flow graphs
-
-A different view: the branches and loops *inside* each function, rather than
-the calls between them.
-
-```bash
-flowlens src/cfg.rs --cfg out/flow.dot
-dot -Tsvg out/flow.dot -o out/flow.svg
-```
-
-`--cfg` only ever reads the first file, so it is always single-file.
-
----
-
-## Single-file analysis
-
-Passing a file that belongs to a crate still indexes the **whole crate**, so
-that cross-file calls resolve. That is usually what you want.
-
-For genuinely isolated analysis, use a file outside any crate:
-
-```bash
-cp src/index.rs /tmp/one.rs
-flowlens /tmp/one.rs
-```
-
-Expect a sparse result. A single file cannot see the functions it calls in
-other files, so those calls are reported as unresolved — which is the honest
-answer from that file alone.
+- Files are found by following `mod` declarations. A module declared inside a
+  macro — `cfg_if!` blocks, as in `libc` — is not followed, so its code is
+  left out.
 
 ---
 
@@ -599,18 +329,15 @@ re-export chains (`pub use`), and calls hidden inside macro arguments such as
 `format!("{}", helper())`.
 
 **It reads documentation** from `///` and `/** */` comments — the first
-sentence onto the graph node, the whole thing into the hover tooltip and the
-outline. Ordinary `//` comments are not documentation and are ignored.
+sentence is how a function is described in the steps and on hover, the whole
+comment shows in its details. Ordinary `//` comments are not documentation
+and are ignored.
 
 **It does not do type inference.** A bare `.foo()` on a receiver whose type is
-unknown cannot be resolved. Rather than guess, the analyzer reports it — as
-`?` when several definitions share the name, or in the `DIAGNOSTICS` count
-when there is nothing to match. Cross-file method calls are matched by unique
-name and marked `⇢`; about forty very common `std` names (`len`, `new`, `get`,
-`iter`, …) are never matched that way, so `vec.len()` will not bind to your
-own `len`.
-
-Read the `DIAGNOSTICS` section before trusting a dead-code claim.
+unknown cannot be resolved, and rather than guess, the page leaves it out of
+the steps. Cross-file method calls are matched by unique name; about forty
+very common `std` names (`len`, `new`, `get`, `iter`, …) are never matched
+that way, so `vec.len()` will not bind to your own `len`.
 
 ---
 
@@ -642,15 +369,8 @@ step extraction and the before/after comparison; its git tests need `git` and
 | `src/review/compare.rs` | Lines up two versions' steps (and source lines) |
 | `src/review/git.rs` | Exports the "before" version with `git archive` |
 | `src/review/glossary.rs` | Types, constants and statics: docs, fields, who uses them |
-| `src/review/page.rs` | The review page |
-| `src/json.rs` | JSON helpers shared by both pages |
-| `src/report.rs` | The text report |
-| `src/html.rs` | The interactive explorer |
-| `src/dot.rs` | Graphviz output |
-| `src/cfg.rs` | Per-function control-flow graphs |
-
-Note: `out/` and `*.dot` are in `.gitignore`, so generated files may be hidden
-in your editor's sidebar. Check with `ls out/`.
+| `src/review/page.rs` | The page itself: data, layout and script |
+| `src/json.rs` | Just enough JSON writing for the page's embedded data |
 
 ---
 

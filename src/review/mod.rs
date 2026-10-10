@@ -195,7 +195,7 @@ fn folder_name(path: &Path) -> String {
 /// The member crates of a Cargo workspace rooted at `dir`, or `None` when
 /// `dir` is not a workspace root. A root that is also a package counts as a
 /// member. Globs are supported in their common form, `crates/*`.
-fn workspace_members(dir: &Path) -> Option<Vec<PathBuf>> {
+pub fn workspace_members(dir: &Path) -> Option<Vec<PathBuf>> {
     if !dir.is_dir() {
         return None;
     }

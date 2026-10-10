@@ -18,10 +18,6 @@ pub struct ModuleFile {
 }
 
 impl ModuleFile {
-    /// `crate::db::pool`, for display.
-    pub fn display_path(&self) -> String {
-        if self.module_path.is_empty() { "crate".to_string() } else { format!("crate::{}", self.module_path.join("::")) }
-    }
 }
 
 /// The files of one crate, in discovery order with the root first.

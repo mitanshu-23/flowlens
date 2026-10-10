@@ -525,25 +525,4 @@ impl Workspace {
         edges
     }
 
-    /// Definitions with no caller anywhere in the crate.
-    pub fn unreferenced(&self) -> Vec<GlobalId> {
-        let mut called: std::collections::HashSet<GlobalId> = Default::default();
-        for (fid, f) in self.files.iter().enumerate() {
-            for r in &f.references {
-                if let Some(g) = r.global_target(fid) {
-                    called.insert(g);
-                }
-            }
-        }
-        let mut out = Vec::new();
-        for (fid, f) in self.files.iter().enumerate() {
-            for s in f.symbols.iter().filter(|s| s.kind.is_callable()) {
-                let g = GlobalId { file: fid, sym: s.id };
-                if !called.contains(&g) {
-                    out.push(g);
-                }
-            }
-        }
-        out
-    }
 }

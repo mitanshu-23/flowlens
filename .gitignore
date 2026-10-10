@@ -1,9 +1,4 @@
 /target
 
-# Output the tool writes when run from the repository root
-/out
+# The page flowlens writes when run from the repository root
 /review.html
-/map.html
-*.dot
-*.svg
-*.png

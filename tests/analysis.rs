@@ -460,58 +460,6 @@ fn dependency_calls_stay_out_of_user_code() {
 
 // ------------------------------------------------------------------ output
 
-#[test]
-fn cfg_gives_each_function_its_own_cluster() {
-    let src = "struct A; struct B;\nimpl A { fn new() -> A { A } }\nimpl B { fn new() -> B { B } }\n";
-    let out = flowlens::cfg::emit_cfg_dot(src, &[]);
-    assert_eq!(out.matches("subgraph cluster_").count(), 2);
-    assert!(out.contains("cluster_new_0") && out.contains("cluster_new_1"));
-}
-
-fn assert_balanced(out: &str) {
-    let mut depth = 0i32;
-    let mut in_quotes = false;
-    let mut escaped = false;
-    for ch in out.chars() {
-        match ch {
-            _ if escaped => escaped = false,
-            '\\' if in_quotes => escaped = true,
-            '"' => in_quotes = !in_quotes,
-            '{' if !in_quotes => depth += 1,
-            '}' if !in_quotes => depth -= 1,
-            _ => {}
-        }
-        assert!(depth >= 0, "unbalanced braces");
-    }
-    assert_eq!(depth, 0, "unbalanced braces");
-    assert!(!in_quotes, "unterminated string");
-}
-
-#[test]
-fn call_graph_output_is_balanced() {
-    let tc = small_crate();
-    let ws = tc.load();
-    for include_library in [false, true] {
-        assert_balanced(&flowlens::dot::emit_call_graph(&ws, flowlens::dot::Options { include_library, ..Default::default() }));
-    }
-}
-
-#[test]
-fn file_graph_output_is_balanced() {
-    let tc = small_crate();
-    assert_balanced(&flowlens::dot::emit_file_graph(&tc.load()));
-}
-
-#[test]
-fn call_graph_omits_library_nodes_by_default() {
-    let tc = small_crate();
-    let ws = tc.load();
-    let plain = flowlens::dot::emit_call_graph(&ws, Default::default());
-    assert!(!plain.contains("cluster_library"), "library calls are excluded unless asked for");
-    let with_lib = flowlens::dot::emit_call_graph(&ws, flowlens::dot::Options { include_library: true, ..Default::default() });
-    assert!(with_lib.contains("cluster_library"));
-}
-
 // ------------------------------------------------------------ doc comments
 
 const DOCUMENTED: &str = r#"
@@ -572,72 +520,7 @@ fn doc_summary_is_none_without_a_doc() {
     assert_eq!(ix.symbols[find(&ix, "undocumented")].doc_summary(), None);
 }
 
-#[test]
-fn graph_nodes_carry_doc_summaries_and_tooltips() {
-    let tc = TempCrate::new(&[
-        ("Cargo.toml", "[package]\nname = \"d\"\nversion = \"0.1.0\"\n"),
-        ("src/lib.rs", "/// Add two numbers together.\n///\n/// Detail that belongs in the tooltip.\npub fn add(a: u32, b: u32) -> u32 { a + b }\npub fn go() -> u32 { add(1, 2) }\n"),
-    ]);
-    let ws = tc.load();
-
-    let with_docs = flowlens::dot::emit_call_graph(&ws, Default::default());
-    assert!(with_docs.contains("Add two numbers together."), "the summary belongs on the node label");
-    assert!(with_docs.contains("Detail that belongs in the tooltip."), "the full doc belongs in the tooltip");
-    assert_balanced(&with_docs);
-
-    let without = flowlens::dot::emit_call_graph(&ws, flowlens::dot::Options { include_library: false, show_docs: false });
-    // The separator is only ever emitted into a label, so its absence is a
-    // precise check — the tooltip legitimately still carries the same words.
-    assert!(with_docs.contains("———"), "documented nodes get a rule above the summary");
-    assert!(!without.contains("———"), "--no-docs keeps summaries off the labels");
-    assert!(without.contains("Detail that belongs in the tooltip."), "but the tooltip keeps the full doc either way");
-}
-
-#[test]
-fn doc_text_with_quotes_does_not_break_the_graph() {
-    let tc = TempCrate::new(&[("Cargo.toml", "[package]\nname = \"q\"\nversion = \"0.1.0\"\n"), ("src/lib.rs", "/// Handles \"quoted\" text, a backslash \\\\, and braces { like this }.\npub fn tricky() {}\n")]);
-    let ws = tc.load();
-    assert_balanced(&flowlens::dot::emit_call_graph(&ws, Default::default()));
-}
-
 // ------------------------------------------------------- interactive page
-
-/// Pull the embedded `const DATA = {...};` back out of the page.
-fn embedded_json(page: &str) -> &str {
-    let start = page.find("const DATA = ").expect("data block") + "const DATA = ".len();
-    let rest = &page[start..];
-    let end = rest.find(";\n").expect("end of data block");
-    &rest[..end]
-}
-
-/// Enough of a JSON check to catch an unescaped quote or a stray control
-/// character, without adding a parser dependency.
-fn assert_json_well_formed(json: &str) {
-    let mut depth = 0i32;
-    let mut in_str = false;
-    let mut escaped = false;
-    for (i, c) in json.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match c {
-            '\\' if in_str => escaped = true,
-            '"' => in_str = !in_str,
-            '{' | '[' if !in_str => depth += 1,
-            '}' | ']' if !in_str => {
-                depth -= 1;
-                assert!(depth >= 0, "unbalanced at byte {i}");
-            }
-            c if in_str && (c as u32) < 0x20 => {
-                panic!("raw control character U+{:04X} inside a string at byte {i}", c as u32)
-            }
-            _ => {}
-        }
-    }
-    assert_eq!(depth, 0, "unbalanced braces");
-    assert!(!in_str, "unterminated string");
-}
 
 fn documented_crate() -> TempCrate {
     TempCrate::new(&[
@@ -680,70 +563,6 @@ fn receiver_is_recorded_as_a_parameter() {
     assert_eq!(go.params[0].name, "self");
     assert_eq!(go.params[0].ty, "&mut self");
     assert_eq!(go.params[1].name, "n");
-}
-
-#[test]
-fn html_page_is_self_contained() {
-    let tc = documented_crate();
-    let page = flowlens::html::emit(&tc.load());
-    assert!(page.starts_with("<!doctype html>"));
-    assert!(page.contains("<style>") && page.contains("<script>"));
-    // No network: a strict reader should find no external references.
-    assert!(!page.contains("http://") && !page.contains("https://"));
-    assert!(!page.contains("<link ") && !page.contains("src=\""));
-}
-
-#[test]
-fn html_data_block_is_valid_json() {
-    let tc = documented_crate();
-    let page = flowlens::html::emit(&tc.load());
-    assert_json_well_formed(embedded_json(&page));
-}
-
-#[test]
-fn html_carries_params_docs_and_calls() {
-    let tc = documented_crate();
-    let page = flowlens::html::emit(&tc.load());
-    let json = embedded_json(&page);
-    assert!(json.contains("\"name\":\"times\""), "parameter names");
-    assert!(json.contains("\"ret\":\"HashMap"), "return type");
-    assert!(json.contains("Run the whole thing."), "doc summary");
-    assert!(json.contains("Longer detail"), "the full doc, not just the summary");
-    assert!(json.contains("\"calls\":["), "call edges");
-    assert!(json.contains("\"lib\":["), "library calls, kept separate");
-}
-
-#[test]
-fn angle_brackets_in_docs_cannot_break_out_of_the_script() {
-    // A doc comment containing `</script>` would end the tag early and inject
-    // markup into the page.
-    let tc = TempCrate::new(&[("Cargo.toml", "[package]\nname = \"x\"\nversion = \"0.1.0\"\n"), ("src/lib.rs", "/// Dangerous: </script><img onerror=alert(1)> and a \"quote\".\npub fn f() {}\n")]);
-    let page = flowlens::html::emit(&tc.load());
-    let json = embedded_json(&page);
-    assert!(!json.contains("</script>"), "the closing tag must be escaped");
-    assert!(json.contains("\\u003c"), "angle brackets escape to \\u003c");
-    assert_json_well_formed(json);
-    // Exactly one script element.
-    assert_eq!(page.matches("</script>").count(), 1);
-}
-
-#[test]
-fn html_output_is_deterministic() {
-    let tc = documented_crate();
-    let ws = tc.load();
-    assert_eq!(flowlens::html::emit(&ws), flowlens::html::emit(&ws));
-}
-
-#[test]
-fn html_includes_every_callable_but_no_types() {
-    let tc = documented_crate();
-    let ws = tc.load();
-    let page = flowlens::html::emit(&ws);
-    let json = embedded_json(&page);
-    let callables: usize = ws.files.iter().map(|f| f.callables().count()).sum();
-    assert_eq!(json.matches("\"qualified\":").count(), callables);
-    // `unused` has no callers but must still be listed.
-    assert!(json.contains("\"name\":\"unused\""));
 }
 
 // ------------------------------------------------------ call-site detail
@@ -823,16 +642,6 @@ fn value_flowing_through_postfix_calls_keeps_its_binding() {
 }
 
 #[test]
-fn html_calls_carry_arguments_and_bindings() {
-    let tc = documented_crate();
-    let page = flowlens::html::emit(&tc.load());
-    let json = embedded_json(&page);
-    assert!(json.contains("\"args\":["), "call sites record their arguments");
-    assert!(json.contains("\"bind\":"), "and where the result is stored");
-    assert_json_well_formed(json);
-}
-
-#[test]
 fn call_order_is_preserved_for_the_flow_view() {
     // The page sorts by line, so the data must carry an honest line for each
     // call — not one line per target.
@@ -890,27 +699,6 @@ fn long_bindings_are_stored_in_full() {
     );
     let call = ix.references.iter().find(|r| r.name == "make").unwrap();
     assert_eq!(call.binding.as_deref(), Some("(first_component, second_component, third_component)"));
-}
-
-#[test]
-fn the_page_carries_long_arguments_verbatim() {
-    let tc = TempCrate::new(&[("Cargo.toml", "[package]\nname = \"L\"\nversion = \"0.1.0\"\n"), ("src/lib.rs", LONG_ARGS)]);
-    let page = flowlens::html::emit(&tc.load());
-    let json = embedded_json(&page);
-    // The argument the user saw cut off must survive into the page intact.
-    assert!(json.contains("recalculates every derived figure for the current accounting period"), "the last argument must reach the page whole");
-    assert!(!json.contains('\u{2026}'), "no ellipsis in the data");
-    assert_json_well_formed(json);
-}
-
-#[test]
-fn long_steps_are_marked_expandable() {
-    let page = flowlens::html::emit(&TempCrate::new(&[("Cargo.toml", "[package]\nname = \"L\"\nversion = \"0.1.0\"\n"), ("src/lib.rs", LONG_ARGS)]).load());
-    // The clipping is CSS, and the expanded state has to be reachable.
-    assert!(page.contains("text-overflow: ellipsis"), "collapsed view clips");
-    assert!(page.contains("li.open > .step-body"), "expanded view exists");
-    assert!(page.contains("expandAll"), "expand-all control exists");
-    assert!(page.contains("more"), "an affordance says there is more to see");
 }
 
 // -------------------------------------------------------- control flow
@@ -1008,29 +796,3 @@ fn context_stops_at_the_function_boundary() {
     assert!(call.context.is_empty(), "a nested fn starts a fresh context, got {:?}", call.context);
 }
 
-#[test]
-fn the_page_carries_the_control_context() {
-    let tc = TempCrate::new(&[("Cargo.toml", "[package]\nname = \"N\"\nversion = \"0.1.0\"\n"), ("src/lib.rs", NESTED)]);
-    let page = flowlens::html::emit(&tc.load());
-    let json = embedded_json(&page);
-    assert!(json.contains("\"ctx\":["), "calls carry their context");
-    assert!(json.contains("\"k\":\"for\""), "loops are labelled");
-    // `&` is escaped to \u0026 so it can never close the script tag early.
-    assert!(json.contains("for it in "), "with the header as written");
-    assert!(json.contains("\\u0026items"), "and its ampersand safely escaped");
-    assert_json_well_formed(json);
-    // And the page can draw them.
-    assert!(page.contains("renderFlow"), "nesting renderer present");
-    assert!(page.contains("runs repeatedly"), "loops are called out");
-}
-
-#[test]
-fn the_page_offers_hiding_and_remembers_it() {
-    let tc = documented_crate();
-    let page = flowlens::html::emit(&tc.load());
-    assert!(page.contains("data-hide-fn"), "per-function hide");
-    assert!(page.contains("data-hide-file"), "per-file hide");
-    assert!(page.contains("showAll"), "a way back");
-    assert!(page.contains("localStorage"), "the choice persists");
-    assert!(page.contains("isHidden"), "hidden items are filtered out");
-}

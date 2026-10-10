@@ -2,15 +2,13 @@
 name = "flowlens"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
-description = "Review a change to Rust code without reading it: each feature's steps before and now, side by side, on one interactive page."
+rust-version = "1.86"
+description = "See how your Rust code flows without reading it: an interactive map of every feature, what it calls, and its steps in plain words, plus what a change did."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["code-review", "static-analysis", "call-graph", "visualization", "git"]
+keywords = ["code-review", "static-analysis", "call-graph", "visualization", "control-flow"]
 categories = ["development-tools", "command-line-utilities", "visualization"]
 include = ["/src", "/tests", "/README.md", "/RUNNING.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/Cargo.toml", "/Cargo.lock"]
 
 [dependencies]
-petgraph = "0.8.3"
 ra_ap_syntax = "0.0.293"
-indexmap = "2"

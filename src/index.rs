@@ -53,14 +53,6 @@ impl FileIndex {
         self.symbols.iter().filter(|s| s.kind.is_callable())
     }
 
-    /// A reference worth showing. Every call site counts; bare value and type
-    /// mentions only count when they actually point somewhere.
-    pub fn is_interesting(&self, r: &Reference) -> bool {
-        match r.kind {
-            RefKind::Call | RefKind::MethodCall | RefKind::MacroCall => true,
-            RefKind::ValueRef | RefKind::TypeRef => !matches!(r.to, Resolution::Unresolved { origin: None, .. }),
-        }
-    }
 }
 
 /// Index a single file with no crate context. Every non-local name lands in

@@ -48,10 +48,6 @@ impl LineIndex {
         let col = src[start..offset.min(src.len())].chars().count() + 1;
         (line + 1, col)
     }
-
-    pub fn line_count(&self) -> usize {
-        self.line_starts.len()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
