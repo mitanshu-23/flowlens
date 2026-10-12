@@ -616,3 +616,18 @@ fn main() { work(&[1]); }
     assert_eq!(get("later").init, None);
     assert_eq!(get("later").sets.len(), 1);
 }
+
+#[test]
+fn files_git_archive_would_leave_out_are_not_mistaken_for_new_ones() {
+    // `export-ignore` keeps a file out of `git archive`; the "before" side
+    // must still have it, or it shows as added though nothing changed.
+    let dir = crate_with("mod helper;\nfn main() { helper::ok(); }\n");
+    dir.write("src/helper.rs", "pub fn ok() {}\n");
+    dir.write(".gitattributes", "src/helper.rs export-ignore\n");
+    git(&dir.0, &["init", "-q"]);
+    git(&dir.0, &["add", "-A"]);
+    git(&dir.0, &["commit", "-qm", "first"]);
+
+    let r = review::run(&dir.0, "HEAD").expect("review runs");
+    assert!(r.fns.values().all(|f| f.status == Status::Same), "{:?}", r.fns.values().map(|f| (&f.key, f.status)).collect::<Vec<_>>());
+}

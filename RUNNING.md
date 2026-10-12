@@ -11,7 +11,6 @@ project. For what the output means, see [README.md](README.md).
 | --- | --- | --- |
 | Rust (stable, 1.86 or newer) | installs the tool | `cargo --version` |
 | git | fetches the "before" version for a review | `git --version` |
-| tar | unpacks that version into a temporary folder | `tar --version` |
 | A web browser | opens the generated page | — |
 
 No Rust yet? Install it from <https://rustup.rs>:
@@ -141,7 +140,7 @@ cargo test
 ```
 
 All tests should pass. The review tests create small git repositories in your
-system's temp folder, so they need `git` and `tar` too.
+system's temp folder, so they need `git` too.
 
 ---
 

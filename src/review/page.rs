@@ -160,6 +160,10 @@ const BODY: &str = r##"<header class="bar">
     </div>
     <button class="toolbtn" id="structbtn" title="Folders, files and what each defines — in the side space">▤ Structure</button>
     <input id="q" type="search" placeholder="Find a function  /" autocomplete="off" aria-label="Find a function">
+    <button class="regexbtn" id="rxhelp" aria-expanded="false" title="Search patterns: ready-made ones, your own, and what the signs mean">?</button>
+    <button class="regexbtn" id="regexbtn" aria-pressed="false" title="Regular expression: ^get matches names starting with get, _efile$ names ending with _efile. Or write /pattern/">.*</button>
+    <span class="qcount" id="qcount" hidden aria-live="polite"></span>
+    <div class="rxpanel" id="rxpanel" hidden role="dialog" aria-label="Search patterns"></div>
   </div>
 </header>
 <div class="split">
@@ -187,6 +191,11 @@ const BODY: &str = r##"<header class="bar">
       <button class="z-fit" aria-label="Fit to screen">Fit</button>
     </div>
     <div class="maphint" id="maphint"></div>
+    <div class="hiddenbox" id="hiddenbox" hidden>
+      <button class="hiddenchip" id="hiddenchip" aria-expanded="false" title="Functions you hid from the map"></button>
+      <div class="hiddenlist" id="hiddenlist" hidden></div>
+    </div>
+    <div class="toast" id="toast" hidden role="status"></div>
     <div class="focusbar" id="focusbar" hidden></div>
   </section>
   <div class="mapsgutter" id="mapsgutter" hidden role="separator" aria-label="Drag to share the space between the map and the side space; double-click to split evenly" tabindex="0"></div>
@@ -235,7 +244,7 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 code { background: var(--code); padding: 0 4px; border-radius: 4px; overflow-wrap: anywhere; }
 button { font: inherit; color: inherit; }
 
-.bar { display: flex; gap: 12px 20px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+.bar { position: relative; display: flex; gap: 12px 20px; align-items: center; justify-content: space-between; flex-wrap: wrap;
   padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
 .title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
@@ -295,6 +304,22 @@ h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
 .node.aside rect.box { stroke-dasharray: 6 3; stroke-width: 2; }
 .node .asidechip text { fill: var(--info-ink); font-size: 10.5px; font-weight: 700; }
 .node .asidechip rect { fill: var(--info); stroke: none; }
+.hiddenbox { position: absolute; left: 12px; bottom: 56px; z-index: 5; }
+.hiddenchip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 3px 11px; font-size: 12.5px; cursor: pointer; color: var(--muted); }
+.hiddenchip:hover, .hiddenchip[aria-expanded="true"] { border-color: var(--focus); color: var(--ink); }
+.hiddenlist { position: absolute; left: 0; bottom: calc(100% + 6px); width: 300px; max-height: 50vh; overflow-y: auto; background: var(--card);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 8px 10px; font-size: 13px; }
+.hiddenlist .hl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.hiddenlist ul { list-style: none; margin: 0; padding: 0; }
+.hiddenlist li { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--line); }
+.hiddenlist li .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 6; display: flex; gap: 12px; align-items: center;
+  background: var(--ink); color: var(--bg); border-radius: 8px; padding: 7px 12px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+.toast .link { color: var(--bg); border-color: rgba(255,255,255,.4); background: none; }
+.hidebtn:hover rect { stroke: var(--del-edge); }
+.hidebtn:hover text { fill: var(--del-ink); }
+.tree li.ti.hiddenfn { opacity: .5; }
+.tree li.ti.hiddenfn .lbl::after { content: ' · hidden'; font-size: 11px; color: var(--muted); }
 .takeout { opacity: 0; transition: opacity .15s; cursor: pointer; }
 .node:hover .takeout, .node:focus .takeout { opacity: 1; }
 .takeout rect { fill: var(--card); stroke: var(--line); }
@@ -325,6 +350,47 @@ body.popup .panel { border: none; height: 100%; overflow-y: auto; }
 .node.feature rect.box { stroke-width: 2.2; }
 .node.sel rect.box { stroke: var(--focus); stroke-width: 3; stroke-dasharray: none; }
 .node.hit rect.box { stroke: var(--focus); stroke-width: 2.5; }
+.proxy.hit rect.box { stroke: var(--focus); stroke-width: 2.2; stroke-dasharray: none; }
+.proxy.hit text { fill: var(--ink); }
+.node.hit-now rect.box, .proxy.hit-now rect.box { stroke-width: 4; filter: drop-shadow(0 0 4px var(--focus)); }
+svg.map.focus g.node.hit, svg.map.focus g.proxy.hit { opacity: 1; }
+#q.regex { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+#q.bad { border-color: var(--del-edge); background: var(--del); }
+.regexbtn { height: 30px; min-width: 32px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; cursor: pointer;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-weight: 700; color: var(--muted); }
+.regexbtn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.regexbtn#rxhelp.on { background: var(--info); color: var(--info-ink); border-color: var(--info-ink); }
+.rxpanel { position: absolute; right: 16px; top: calc(100% + 6px); z-index: 30; width: min(460px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 10px 12px 12px; font-size: 13px; }
+.rx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.rx-x { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 13px; }
+.rx-sec { margin: 10px 0 4px; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.rx-sec .hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.rx-list { list-style: none; margin: 0; padding: 0; }
+.rx-list li { display: grid; grid-template-columns: 9.5em auto 1fr auto; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.rx-list li:hover { background: var(--info); }
+.rx-list .rx-name { font-weight: 600; }
+.rx-list .rx-what { color: var(--muted); font-size: 12px; }
+.rx-list.mine li { grid-template-columns: 9.5em 1fr auto; }
+.rx-del { border: none; background: none; cursor: pointer; color: var(--muted); }
+.rx-del:hover { color: var(--del-ink); }
+.rx-empty { margin: 2px 6px; }
+.rx-save { display: flex; gap: 6px; margin-top: 6px; }
+.rx-save input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 12.5px; }
+.rx-save button { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12.5px; }
+.rx-save :disabled { opacity: .5; cursor: default; }
+.rx-signs { margin-top: 10px; }
+.rx-signs summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.rx-signs table { border-collapse: collapse; margin-top: 4px; font-size: 12.5px; }
+.rx-signs td { padding: 2px 8px 2px 0; vertical-align: baseline; }
+.modline { font-size: 11.5px; }
+.ctx { color: var(--muted); font-size: 11.5px; margin-left: 2px; }
+.fchip .ctx { font-size: 11px; }
+.sortseg { margin: 8px 0 2px; }
+.chglist .why { display: block; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.chglist .first { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--chg-ink); background: var(--chg);
+  border: 1px solid var(--chg-edge); border-radius: 4px; padding: 0 4px; margin-right: 4px; }
+.qcount { font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .node text { fill: var(--ink); font-size: 13px; }
 .node text.sub { fill: var(--muted); font-size: 10.5px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .node text.feat { fill: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; }
@@ -614,7 +680,10 @@ table.parts .pd p { margin: 0; }
 .code .c-kw { color: var(--info-ink); font-weight: 600; }
 .code .c-str { color: var(--add-ink); }
 .code .c-com { color: var(--muted); font-style: italic; }
-.code tr.flash td { animation: flash 1.8s ease-out; }
+.code tr.flash td, tr.vrow.flash td { animation: flash 1.8s ease-out; }
+.gcard.flash { animation: flash 1.8s ease-out; }
+a.vref { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
+a.vref:hover { color: var(--focus); }
 @keyframes flash { 0%, 40% { background: var(--chg); } 100% { background: transparent; } }
 .code-note { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
 .no[data-ln], .mp-no[data-ln] { cursor: pointer; }
@@ -705,6 +774,49 @@ function setFaces(plain) {
   indexCalls();
 }
 const fnName = (f) => (f.o ? f.o + '::' : '') + f.n;
+
+/// The module a function is defined in: its key without the function, and
+/// without the type for a method — `crate::configuration`.
+const moduleOf = (f) => f.key.split('::').slice(0, f.o ? -2 : -1).join('::') || 'crate';
+
+/// Each file's shortest name that still tells it apart: the file name, and
+/// when another file in the same crate has that name too, the folder where
+/// their paths first differ — `configuration/mod.rs`, `jobs/mod.rs`; folders
+/// in between that are the same collapse to `…` — `api/…/mod.rs`.
+let shortFiles = null;
+const shortFile = (path) => (shortFiles = shortFiles || buildShortFiles())[path];
+function buildShortFiles() {
+  const groups = {};
+  const add = (crate, path) => ((groups[crate] = groups[crate] || new Set()).add(path));
+  for (const k of KEYS) add(MULTI ? k.split('::')[0] : '', F[k].f);
+  const out = {};
+  for (const paths of Object.values(groups)) {
+    const all = [...paths].map((p) => p.split('/'));
+    for (const segs of all) {
+      const name = segs[segs.length - 1];
+      const twins = all.filter((o) => o !== segs && o[o.length - 1] === name);
+      if (!twins.length) { out[segs.join('/')] = name; continue; }
+      // Walk up from the file until this path's folder differs from every twin's.
+      let up = 2;
+      while (up <= segs.length && twins.some((o) => o.length >= up && o[o.length - up] === segs[segs.length - up])) up++;
+      const folder = segs[segs.length - up];
+      out[segs.join('/')] = folder === undefined ? segs.join('/') : up === 2 ? folder + '/' + name : folder + '/…/' + name;
+    }
+  }
+  return out;
+}
+
+/// Where a function is defined, on its box: the file's short name and the
+/// line — `mod.rs:17`, or `jobs/mod.rs:17` where another `mod.rs` exists. In
+/// a workspace the crate comes first. The full path is in the box's hover
+/// and in its details.
+function whereShort(f, chars) {
+  const text = crateOf(f) + (shortFile(f.f) || f.f.split('/').pop()) + ':' + f.ln;
+  return text.length > chars ? '…' + text.slice(text.length - chars + 1) : text;
+}
+
+/// The full answer, for hovers: file and line, module, and type.
+const whereLong = (f) => 'Defined in ' + f.f + ', line ' + f.ln + '\nModule ' + moduleOf(f) + (f.o ? ' · impl ' + f.o : '');
 /// A function's description; one cut short opens to its whole first paragraph.
 function labelHTML(f) {
   if (!f.l.endsWith('…') || !f.doc) return esc(f.l);
@@ -771,6 +883,111 @@ function visible(expanded) {
 /// A flow taken out into the side space leaves only its first box behind:
 /// whatever the main map reaches solely through that box goes with it.
 /// Functions also reached some other way stay.
+// ------------------------------------------------------------ hiding
+//
+// The reader can hide a function from the map — a helper they do not care
+// about, a branch they have read. Its box goes, and so does whatever the map
+// reaches only through it; what is also reached some other way stays. The
+// code is not touched: hiding is a view, kept per project in this browser,
+// and every hidden function is one click from coming back.
+
+const HIDDEN_KEY = 'flowlens:hidden:' + DATA.crate;
+const hidden = new Set((() => { try { return JSON.parse(localStorage.getItem(HIDDEN_KEY)) || []; } catch (e) { return []; } })()
+  .filter((k) => F[k]));
+const keepHidden = () => { try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch (e) {} };
+
+/// Drop hidden functions, and what is reachable only through them, from what
+/// a map is about to draw. `keep` (a side space's own root) always stays.
+function dropHidden({ nodes, edges }, keep) {
+  if (!hidden.size) return { nodes, edges };
+  const set = new Set(nodes);
+  const into = {};
+  for (const e of edges) (into[e.v] = into[e.v] || []).push(e.u);
+  const out = {};
+  for (const e of edges) (out[e.u] = out[e.u] || []).push(e.v);
+  const gone = (k) => hidden.has(k) && k !== keep;
+  const reach = new Set();
+  const queue = [...set].filter((k) => !(into[k] || []).length && !gone(k));
+  for (const k of queue) reach.add(k);
+  while (queue.length) {
+    const k = queue.shift();
+    for (const c of out[k] || []) if (!gone(c) && !reach.has(c)) { reach.add(c); queue.push(c); }
+  }
+  // Something kept only for being selected, with nothing leading to it.
+  for (const k of set) if (!gone(k) && !(into[k] || []).length) reach.add(k);
+  return { nodes: [...reach], edges: edges.filter((e) => reach.has(e.u) && reach.has(e.v)) };
+}
+
+function hideFn(k) {
+  if (!F[k] || hidden.has(k)) return;
+  hidden.add(k);
+  keepHidden();
+  if (state.selected === k) state.selected = null;
+  drawAll(false);
+  renderHidden();
+  if (state.sideTab === 'structure') renderSide();
+  if (!state.selected) showOverview(); else showFunction(state.selected);
+  toast('Hidden from the map: <b>' + esc(fnName(F[k])) + '</b>', 'Undo', () => restoreFn(k));
+}
+
+function restoreFn(k) {
+  if (!hidden.delete(k)) return;
+  keepHidden();
+  drawAll(false);
+  renderHidden();
+  if (state.sideTab === 'structure') renderSide();
+  if (state.selected) showFunction(state.selected);
+}
+
+function restoreAll() {
+  if (!hidden.size) return;
+  hidden.clear();
+  keepHidden();
+  drawAll(false);
+  renderHidden();
+  if (state.sideTab === 'structure') renderSide();
+  if (state.selected) showFunction(state.selected);
+}
+
+/// The "N hidden" chip on the map and its list: each function with Restore,
+/// and Restore all.
+function renderHidden() {
+  const box = $('hiddenbox'), chip = $('hiddenchip'), list = $('hiddenlist');
+  box.hidden = !hidden.size;
+  if (!hidden.size) { list.hidden = true; return; }
+  chip.textContent = '⊘ ' + hidden.size + ' hidden';
+  const keys = [...hidden].sort((a, b) => fnName(F[a]).localeCompare(fnName(F[b])));
+  list.innerHTML = '<div class="hl-head"><b>Hidden from the map</b><button class="link" id="hl-all">Restore all</button></div><ul>' +
+    keys.map((k) => '<li><span class="mono" title="' + esc(F[k].f + ':' + F[k].ln) + '">' + esc(fnName(F[k])) + '</span>' +
+      '<button class="link" data-r="' + esc(k) + '">Restore</button></li>').join('') + '</ul>';
+  list.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => restoreFn(b.dataset.r)));
+  $('hl-all').onclick = restoreAll;
+}
+
+function wireHidden() {
+  $('hiddenchip').onclick = () => {
+    const list = $('hiddenlist');
+    list.hidden = !list.hidden;
+    $('hiddenchip').setAttribute('aria-expanded', String(!list.hidden));
+  };
+  renderHidden();
+}
+
+/// A short message at the bottom of the map, with one action.
+let toastTimer = 0;
+function toast(html, action, run) {
+  const t = $('toast');
+  t.innerHTML = '<span>' + html + '</span>' + (action ? '<button class="link" id="toast-act">' + esc(action) + '</button>' : '');
+  t.hidden = false;
+  if (action) $('toast-act').onclick = () => { t.hidden = true; run(); };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 6000);
+}
+
+const isHidden = (k) => hidden.has(k);
+/// A function's calls in order, without the ones hidden from the map.
+const liveCalls = (k) => calls(k).filter((c) => !hidden.has(c));
+
 function pruneAside(nodes) {
   const out = (k) => calls(k).filter((c) => nodes.has(c));
   const into = {};
@@ -938,12 +1155,17 @@ function layout(nodes, edges, opts = {}) {
   const dropped = new Set();
   const hide = (it) => {
     if (it.proxy) { dropped.add(it.proxy.id); return; }
+    // A busy box on another page takes its own pager with it.
+    if (it.pager) { dropped.add(it.pager.id); return; }
     folded.add(it.real);
     for (const k of kids[it.real] || []) hide(k);
   };
   const target = (it) => it.real || it.proxy.v;
   const matters = (it) => it.real ? mustShow(it.real) || (kids[it.real] || []).some((k) => k.real && affected(k.real)) : mustShow(it.proxy.v);
   for (const n of Object.keys(kids)) {
+    // A box already on another page of its caller's calls is not drawn, so
+    // it gets no pager of its own.
+    if (folded.has(n)) continue;
     const ks = kids[n];
     if (ks.length <= CAP) continue;
     const count = Math.ceil(ks.length / CAP);
@@ -993,18 +1215,20 @@ function layout(nodes, edges, opts = {}) {
     pos[n] = at(depth[n], c[n], h ? boxH(n) : W);
     pos[n].h = boxH(n);
   }
-  const shownProxies = proxies.filter((px) => !dropped.has(px.id));
+  // Nothing is drawn hanging off a box that is not drawn.
+  const shownProxies = proxies.filter((px) => !dropped.has(px.id) && !folded.has(px.u));
+  const shownPagers = pagers.filter((pg) => !dropped.has(pg.id) && !folded.has(pg.u));
   for (const px of shownProxies) Object.assign(px, at(depth[px.u] + 1, c[px.id], h ? PH : W));
-  for (const pg of pagers) Object.assign(pg, at(depth[pg.u] + 1, c[pg.id], h ? PH : W));
+  for (const pg of shownPagers) Object.assign(pg, at(depth[pg.u] + 1, c[pg.id], h ? PH : W));
 
   const arrows = [];
-  for (const n of nodes) if (parent[n] && pos[n]) {
+  for (const n of nodes) if (parent[n] && pos[n] && pos[parent[n]]) {
     const e = out[parent[n]].find((x) => x.v === n);
     arrows.push({ u: parent[n], v: n, kind: e.kind, to: pos[n], th: pos[n].h });
   }
   for (const px of shownProxies) arrows.push({ u: px.u, v: px.v, kind: px.kind, to: px, th: PH, proxy: px.id });
-  for (const pg of pagers) arrows.push({ u: pg.u, v: null, kind: 'same', to: pg, th: PH, chip: pg.id });
-  return { pos, proxies: shownProxies, pagers, arrows };
+  for (const pg of shownPagers) arrows.push({ u: pg.u, v: null, kind: 'same', to: pg, th: PH, chip: pg.id });
+  return { pos, proxies: shownProxies, pagers: shownPagers, arrows };
 }
 
 function svg(tag, attrs, parent) {
@@ -1045,7 +1269,7 @@ class MapView {
   }
 
   draw(fit) {
-    const { nodes, edges } = this.source(this.expanded);
+    const { nodes, edges } = dropHidden(this.source(this.expanded), this.isSide ? state.asideOn : null);
     this.pages = this.pages || new Map();
 
     const before = this.placed;
@@ -1095,13 +1319,16 @@ class MapView {
 
       // Number each call in the order it is made, when there is an order
       // to tell: 1 runs first.
-      if (e.v && calls(e.u).length > 1) {
+      // Numbered among the calls still on the map: hiding one closes the gap.
+      const live = liveCalls(e.u);
+      if (e.v && live.length > 1) {
         const n = svg('g', { class: 'order', transform: 'translate(' + badge.x + ',' + badge.y + ')' }, gE);
         n.dataset.u = e.u;
         n.dataset.v = e.v;
         svg('circle', { r: 8 }, n);
-        svg('text', { y: 3.5, 'text-anchor': 'middle' }, n).textContent = calls(e.u).indexOf(e.v) + 1;
-        svg('title', {}, n).textContent = 'Call ' + (calls(e.u).indexOf(e.v) + 1) + ' of ' + calls(e.u).length + ' made by ' + F[e.u].l;
+        svg('text', { y: 3.5, 'text-anchor': 'middle' }, n).textContent = live.indexOf(e.v) + 1;
+        svg('title', {}, n).textContent = 'Call ' + (live.indexOf(e.v) + 1) + ' of ' + live.length + ' made by ' + F[e.u].l +
+          (live.length < calls(e.u).length ? ' (not counting ' + plural(calls(e.u).length - live.length, 'hidden one', 'hidden ones') + ')' : '');
       }
     }
 
@@ -1187,13 +1414,14 @@ class MapView {
         g.style.transform = at(p);
       }
       svg('title', {}, g).textContent = fullName(f) + '\n' + (f.doc ? f.doc.split(/\n\s*\n/)[0].replace(/\n/g, ' ').replace(/`/g, '') : f.l) +
-        '\n' + f.f + ':' + f.ln + (PLAIN || !DATA.history ? '' : ' — ' + STATUS_WORD[f.s]) +
+        '\n' + whereLong(f) + (PLAIN || !DATA.history ? '' : '\n' + STATUS_WORD[f.s]) +
         (takenOut ? '\nIts flow is in the side space.' : '');
       const bh = p.h || H;
       svg('rect', { class: 'box', width: W, height: bh, rx: 9 }, g);
       if (f.ft) svg('text', { class: 'feat', x: 12, y: -5 }, g).textContent = 'FEATURE';
       svg('text', { class: 'lbl', x: 12, y: 21 }, g).textContent = clip(fnName(f), W - 24);
-      svg('text', { class: 'sub', x: 12, y: 38 }, g).textContent = clip(crateOf(f) + f.f.split('/').pop() + ':' + f.ln, W - 60);
+      // Where it is defined: file and line; hover for the full path.
+      svg('text', { class: 'sub', x: 12, y: 38 }, g).textContent = whereShort(f, Math.floor((W - 60) / 6.3));
       if (takenOut) {
         // Marker for a flow that now lives in the side space.
         const m = svg('g', { class: 'asidechip', transform: 'translate(' + (W - 104) + ',' + (bh - 22) + ')' }, g);
@@ -1202,7 +1430,7 @@ class MapView {
         svg('title', {}, m).textContent = 'Show its flow in the side space';
         m.addEventListener('click', (ev) => { ev.stopPropagation(); showAside(k); });
       } else {
-        const hidden = calls(k).filter((c) => !shown.has(c)).length;
+        const hidden = calls(k).filter((c) => !shown.has(c) && !isHidden(c)).length;
         const open = this.expanded.has(k);
         if (hidden || open) {
           const m = svg('g', { class: 'more', transform: 'translate(' + (W - 44) + ',' + (bh - 22) + ')' }, g);
@@ -1224,11 +1452,23 @@ class MapView {
         svg('title', {}, t).textContent = 'Take this flow out into the side space';
         t.addEventListener('click', (ev) => { ev.stopPropagation(); takeOut(k); });
       }
+      // Hide this function from the map; it comes back from "N hidden".
+      if (!(this.isSide && k === state.asideOn)) {
+        const x = svg('g', { class: 'takeout hidebtn', transform: 'translate(' + (W - (!this.isSide && !takenOut && calls(k).length ? 52 : 26)) + ',4)' }, g);
+        svg('rect', { width: 22, height: 18, rx: 5 }, x);
+        svg('text', { x: 11, y: 13.5, 'text-anchor': 'middle' }, x).textContent = '✕';
+        svg('title', {}, x).textContent = 'Hide from the map (Delete) — restore it from “hidden”';
+        x.addEventListener('click', (ev) => { ev.stopPropagation(); hideFn(k); });
+      }
       g.addEventListener('click', () => select(k, false, this));
       g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') select(k, false, this); });
     }
 
     this.focusNear();
+    // A redraw replaces the boxes; mark the search's places again.
+    if (state.query) this.svgEl.querySelectorAll('.node[data-k], .proxy[data-k]').forEach((el) => {
+      if (!el.classList.contains('pager') && matches(el.dataset.k, state.query)) el.classList.add('hit');
+    });
     if (!this.isSide) {
       const bar = $('focusbar');
       bar.hidden = !state.focus;
@@ -1304,6 +1544,19 @@ class MapView {
     const s = Math.max(Math.min((r.width - pad * 2) / b.w, h / b.h, 1.1), 0.15);
     this.view.moved = false;
     this.move({ s, x: (r.width - b.w * s) / 2 - b.x * s, y: pad + top + (h - b.h * s) / 2 - b.y * s }, animate);
+  }
+
+  /// Centre the view on one element of the map — a box or a ↪ chip — read
+  /// from where it was drawn.
+  centerOnEl(el) {
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(el.style.transform || '');
+    if (!m) return;
+    const x = +m[1], y = +m[2];
+    const h = el.classList.contains('proxy') ? PH : (this.placed[el.dataset.k] && this.placed[el.dataset.k].h) || H;
+    const f = this.free();
+    const s = Math.max(this.view.s, 0.8);
+    this.view.moved = true;
+    this.move({ s, x: (f.x0 + f.x1) / 2 - (x + W / 2) * s, y: (f.y0 + f.y1) / 2 - (y + h / 2) * s }, true);
   }
 
   centerOn(k) {
@@ -1935,6 +2188,12 @@ function paginate(container, selector) {
     bar.querySelectorAll('.pgb').forEach((b) => (b.onclick = (ev) => { ev.stopPropagation(); page = +b.dataset.p; draw(); }));
   };
   draw();
+  // Turn to the page holding `el`, for links that point into the list.
+  container.showItem = (el) => {
+    const on = [...container.querySelectorAll(selector)].filter((x) => !x.dataset.off);
+    const i = on.indexOf(el);
+    if (i >= 0) { page = Math.floor(i / LIST_PAGE); draw(); }
+  };
   return () => { page = 0; draw(); };
 }
 
@@ -2436,7 +2695,9 @@ function chipList(keys, how) {
     const link = how ? how(k) : null;
     const cls = link === 'add' ? 'added' : link === 'del' ? 'removed' : F[k].s;
     const note = link === 'add' ? ' · new call' : link === 'del' ? ' · no longer called' : '';
-    return '<button class="fchip ' + cls + '" data-k="' + esc(k) + '" title="' + esc(fullName(F[k])) + '">' + labelHTML(F[k]) + note + '</button>';
+    const d = distinguisher(k);
+    return '<button class="fchip ' + cls + '" data-k="' + esc(k) + '" title="' + esc(fullName(F[k]) + ' — ' + F[k].f + ':' + F[k].ln) + '">' + labelHTML(F[k]) +
+      (d ? ' <span class="ctx mono">' + esc(d) + '</span>' : '') + note + '</button>';
   }).join('') + '</div>';
 }
 
@@ -2455,13 +2716,20 @@ function showFunction(k) {
   let h = '<div class="pad">' + navBar() + '<div>' +
     (PLAIN || !DATA.history ? '' : '<span class="pill ' + f.s + '">' + STATUS_WORD[f.s] + '</span> ') +
     (f.ft ? '<span class="pill feature">Feature</span> ' : '') + (f.t ? '<span class="pill same">Test</span>' : '') +
-    '</div><h2 class="mono fname">' + esc(fnName(f)) + '</h2><div class="where mono">' + esc(crateOf(f) + f.f) + ':' + f.ln + '</div>';
+    '</div><h2 class="mono fname">' + esc(fnName(f)) + '</h2><div class="where mono">' + esc(crateOf(f) + f.f) + ':' + f.ln + '</div>' +
+    '<div class="where mono modline" title="The module it is defined in">module ' + esc(moduleOf(f)) + (f.o ? ' · impl ' + esc(f.o) : '') + '</div>';
   if (onMap(k) && calls(k).length) {
     h += state.aside.includes(k)
       ? ' <button class="link focusbtn" id="asidebtn" title="Return this flow to the main map">Put back into the main map</button>'
       : ' <button class="link focusbtn" id="asidebtn" title="Move the flow that starts here into its own map beside the main one">⇱ Take out to side space</button>';
   }
   h += ' <button class="link focusbtn" id="codebtn" title="Show this function’s source">‹/› Code</button>';
+  if (onMap(k)) {
+    h += hidden.has(k)
+      ? ' <button class="link focusbtn" id="hidebtn" title="Bring it back onto the map">Show on map</button>'
+      : ' <button class="link focusbtn" id="hidebtn" title="Take it off the map, with what is reached only through it (Delete)">✕ Hide from map</button>';
+  }
+  if (hidden.has(k)) h += '<p class="note">Hidden from the map. Its details stay readable here.</p>';
   if (onMap(k)) {
     h += state.focus === k
       ? '<button class="link focusbtn" id="focusbtn" title="Bring the rest of the map back">Show the whole map</button>'
@@ -2518,6 +2786,7 @@ function showFunction(k) {
   wireNav();
   wireGlossary(panel, k);
   paginate(panel.querySelector('table.vars'), 'tr.vrow');
+  if (stepView !== 'code') linkStepNames(fc, panel);
   paginate(panel.querySelector('.gcards'), '.gcard');
   // A line number in the glossary opens the code at that line.
   panel.querySelectorAll('.lnref').forEach((a) => (a.onclick = (ev) => {
@@ -2543,16 +2812,101 @@ function showFunction(k) {
   if (P('errtoggle')) P('errtoggle').onclick = () => { showErrors = !errorsShown; showFunction(k); };
   if (P('asidebtn')) P('asidebtn').onclick = () => { state.aside.includes(k) ? putBack(k) : takeOut(k); showFunction(k); };
   if (P('focusbtn')) P('focusbtn').onclick = () => setFocus(state.focus === k ? null : k);
+  if (P('hidebtn')) P('hidebtn').onclick = () => (hidden.has(k) ? restoreFn(k) : hideFn(k));
   panel.querySelectorAll('.fchip').forEach((c) => (c.onclick = () => select(c.dataset.k, true)));
   panel.scrollTop = 0;
 }
+
+// ------------------------------------------------------------ telling apart
+
+/// Several functions can read the same — `Fmt`, `New`, `Imp`, or one doc
+/// sentence on two methods. Where a label is shared, lists add what tells
+/// them apart: the type and name, and the file and line when even that
+/// repeats (a `cfg(unix)` and a `cfg(windows)` version of one function).
+let labelCounts = null, nameCounts = null;
+function distinguisher(k, noWhere) {
+  if (!labelCounts) {
+    labelCounts = {}; nameCounts = {};
+    for (const x of KEYS) {
+      labelCounts[F[x].l] = (labelCounts[F[x].l] || 0) + 1;
+      nameCounts[fullName(F[x])] = (nameCounts[fullName(F[x])] || 0) + 1;
+    }
+  }
+  const f = F[k];
+  if (labelCounts[f.l] < 2) return '';
+  const name = fullName(f);
+  const where = nameCounts[name] > 1 && !noWhere ? ' · ' + (shortFile(f.f) || f.f.split('/').pop()) + ':' + f.ln : '';
+  return name + where;
+}
+
+/// A function's label for lists, with what tells it apart when it is shared.
+function nameHTML(k, noWhere) {
+  const d = distinguisher(k, noWhere);
+  return labelHTML(F[k]) + (d ? ' <span class="ctx mono" title="' + esc(F[k].f + ':' + F[k].ln) + '">' + esc(d) + '</span>' : '');
+}
+
+// ------------------------------------------------------------ impact
+//
+// On a large change, what to review first. A change matters more the more
+// features run through it (reach), and the riskier it is: a removed function,
+// different inputs, new ways to crash or fail, many steps changed. Each
+// change is scored from both, with the reasons said in words.
+
+let impacts = null;
+function impactOf(k) {
+  if (!impacts) {
+    impacts = {};
+    const reach = {};
+    for (const ft of DATA.features) {
+      if (ft.s === 'same' && !ft.ci.length) continue;
+      for (const c of ft.ci) reach[c] = (reach[c] || 0) + 1;
+      if (ft.s !== 'same') reach[ft.k] = (reach[ft.k] || 0) + 1;
+    }
+    const stepsChanged = (rows) => rows.reduce((n, r) => n + (r.m !== 'same' ? 1 : 0) + stepsChanged(r.c), 0);
+    for (const x of KEYS) {
+      const f = F[x];
+      if (f.s === 'same' || f.t) continue;
+      let risk = 0;
+      const why = [];
+      if (f.s === 'removed') { risk += 4; why.push('removed'); }
+      if (f.s === 'added') { risk += 1; why.push('new'); }
+      if (f.sig) { risk += 3; why.push('takes different inputs'); }
+      if (f.s === 'changed') {
+        const now = endings(f.rows, 'a'), was = endings(f.rows, 'b');
+        const crash = (now.crash + now.todo) - (was.crash + was.todo), fail = now.fail - was.fail;
+        if (crash > 0) { risk += 3 * crash; why.push('+' + plural(crash, 'way to crash', 'ways to crash')); }
+        if (fail > 0) { risk += 2 * fail; why.push('+' + plural(fail, 'error exit', 'error exits')); }
+        const n = stepsChanged(f.rows);
+        if (n) { risk += Math.min(3, Math.ceil(n / 3)); why.push(plural(n, 'step changed', 'steps changed')); }
+        if (f.d) { risk += 1; why.push('details changed'); }
+      }
+      risk = Math.max(risk, 1);
+      const r = reach[x] || 0;
+      if (r > 1) why.unshift('reaches ' + r + ' features');
+      impacts[x] = { score: risk * (1 + Math.log2(1 + r)), why, reach: r };
+    }
+  }
+  return impacts[k] || { score: 0, why: [], reach: 0 };
+}
+
+/// How the Summary orders its lists: by impact (the default) or by file.
+let summaryOrder = 'impact';
 
 function summaryHTML() {
   const by = (s) => DATA.features.filter((f) => f.s === s);
   const changedFns = KEYS.filter((k) => onMap(k) && F[k].s !== 'same');
   const order = { changed: 0, added: 1, removed: 2 };
-  changedFns.sort((a, b) => order[F[a].s] - order[F[b].s] || (F[a].f < F[b].f ? -1 : 1) || F[a].ln - F[b].ln);
+  const byFile = (a, b) => (F[a].f < F[b].f ? -1 : F[a].f > F[b].f ? 1 : F[a].ln - F[b].ln);
+  if (summaryOrder === 'impact') changedFns.sort((a, b) => impactOf(b).score - impactOf(a).score || byFile(a, b));
+  else changedFns.sort((a, b) => byFile(a, b) || order[F[a].s] - order[F[b].s]);
   const touched = DATA.features.filter((f) => f.s !== 'same');
+  const featScore = (ft) => ft.ci.reduce((n, c) => n + impactOf(c).score, 0) + impactOf(ft.k).score;
+  if (summaryOrder === 'impact') touched.sort((a, b) => featScore(b) - featScore(a) || byFile(a.k, b.k));
+  else touched.sort((a, b) => byFile(a.k, b.k));
+  // The few to look at first: the top of the list, while it stands out.
+  const top = summaryOrder === 'impact' && changedFns.length > 8
+    ? new Set(changedFns.slice(0, Math.max(3, Math.ceil(changedFns.length * 0.05))).filter((k) => impactOf(k).score >= impactOf(changedFns[0]).score * 0.35))
+    : new Set();
   let h = '';
   if (!DATA.history || PLAIN) {
     const n = KEYS.filter(onMap).length;
@@ -2564,7 +2918,7 @@ function summaryHTML() {
       'Each box on the left is a feature — where the program starts doing something. Click any box to see its steps; +N shows what it calls.</p>' +
       (PLAIN ? '' : '<p class="sub" style="margin-top:8px">Once the project is committed to git, run this again after a change and the map will show what changed.</p>');
     h += '<div class="h3"><span>Features</span></div><ul class="list">' + shown.map((ft) =>
-      '<li data-k="' + esc(ft.k) + '"><span class="lbl">' + esc(F[ft.k].l) + '</span><span class="where mono">' + esc(fullName(F[ft.k])) + '</span></li>').join('') + '</ul>';
+      '<li data-k="' + esc(ft.k) + '"><span class="lbl">' + nameHTML(ft.k) + '</span><span class="where mono">' + esc(fullName(F[ft.k])) + '</span></li>').join('') + '</ul>';
     return h + signKey();
   }
   if (!changedFns.length && !DATA.tests.length) {
@@ -2573,20 +2927,27 @@ function summaryHTML() {
     h += '<p class="summary"><b>' + plural(changedFns.length, 'function', 'functions') + ' changed</b>, affecting ' +
       plural(touched.length, 'feature', 'features') + '. ' + plural(by('same').length, 'feature works', 'features work') + ' the same.</p>' +
       '<p class="sub">Click a change to see it on the map and step by step.</p>';
+    h += '<div class="seg mini sortseg" role="group" aria-label="Order the lists">' +
+      '<button data-sort="impact" class="' + (summaryOrder === 'impact' ? 'on' : '') + '" title="What to review first: how many features a change reaches, and how risky it is">By impact</button>' +
+      '<button data-sort="file" class="' + (summaryOrder === 'file' ? 'on' : '') + '" title="In file and line order">By file</button></div>';
   }
   if (touched.length) {
-    h += '<div class="h3"><span>Features affected</span></div><ul class="list">' + touched.map((ft) =>
-      '<li data-k="' + esc(ft.k) + '"><span class="dot ' + ft.s + '"></span><span class="lbl">' + esc(F[ft.k].l) +
+    h += '<div class="h3"><span>Features affected</span><span class="hint">' + plural(touched.length, 'feature', 'features') + '</span></div><ul class="list" id="featlist">' + touched.map((ft) =>
+      '<li data-k="' + esc(ft.k) + '"><span class="dot ' + ft.s + '"></span><span class="lbl">' + nameHTML(ft.k) +
       '</span><span class="where">' + (ft.ci.length ? plural(ft.ci.length, 'change', 'changes') + ' inside' : STATUS_WORD[ft.s]) + '</span></li>').join('') + '</ul>';
   }
   if (changedFns.length) {
-    h += '<div class="h3"><span>Every change</span></div><ul class="list">' + changedFns.map((k) =>
-      '<li data-k="' + esc(k) + '"><span class="dot ' + F[k].s + '"></span><span class="lbl">' + esc(F[k].l) +
-      '</span><span class="where mono">' + esc(F[k].f) + ':' + F[k].ln + '</span></li>').join('') + '</ul>';
+    h += '<div class="h3"><span>Every change</span><span class="hint">' + (summaryOrder === 'impact' ? 'most important first' : 'in file order') + '</span></div><ul class="list chglist" id="chglist">' + changedFns.map((k) => {
+      const im = impactOf(k);
+      return '<li data-k="' + esc(k) + '"' + (top.has(k) ? ' data-changed="1"' : '') + '><span class="dot ' + F[k].s + '"></span><span class="lbl">' +
+        (top.has(k) ? '<span class="first" title="High reach or risk: a good place to start">review first</span> ' : '') + nameHTML(k, true) +
+        (im.why.length ? '<span class="why">' + esc(im.why.join(' · ')) + '</span>' : '') +
+        '</span><span class="where mono" title="' + esc(F[k].f + ':' + F[k].ln) + '">' + esc(whereShort(F[k], 40)) + '</span></li>';
+    }).join('') + '</ul>';
   }
   if (DATA.tests.length) {
-    h += '<div class="h3"><span>Tests edited</span></div><p class="sub">A test edited alongside the code can hide a feature that broke.</p><ul class="list">' +
-      DATA.tests.map((k) => '<li data-k="' + esc(k) + '"><span class="dot ' + F[k].s + '"></span><span class="lbl">' + esc(F[k].l) +
+    h += '<div class="h3"><span>Tests edited</span></div><p class="sub">A test edited alongside the code can hide a feature that broke.</p><ul class="list" id="testlist">' +
+      DATA.tests.map((k) => '<li data-k="' + esc(k) + '"><span class="dot ' + F[k].s + '"></span><span class="lbl">' + nameHTML(k) +
       '</span><span class="where mono">' + esc(F[k].f) + ':' + F[k].ln + '</span></li>').join('') + '</ul>';
   }
   return h;
@@ -2685,6 +3046,8 @@ function showOverview() {
   const leave = () => (overviewScroll[overviewTab] = panel.scrollTop);
   panel.querySelectorAll('li[data-k]').forEach((li) => (li.onclick = (ev) => { ev.stopPropagation(); leave(); select(li.dataset.k, true); }));
   panel.querySelectorAll('[data-g]').forEach((el) => el.addEventListener('click', leave, true));
+  panel.querySelectorAll('.sortseg button').forEach((b) => (b.onclick = () => { summaryOrder = b.dataset.sort; showOverview(); }));
+  ['featlist', 'chglist', 'testlist'].forEach((id) => paginate(panel.querySelector('#' + id), 'li'));
   wireGlossaryList();
   wireNav();
   panel.scrollTop = overviewScroll[overviewTab] || 0;
@@ -2723,7 +3086,7 @@ function structureHTML() {
   const item = (it) => {
     if (it.fn) {
       const f = F[it.fn];
-      return '<li class="ti" data-k="' + esc(it.fn) + '" data-text="' + esc((f.n + ' ' + f.l).toLowerCase()) + '" title="' + esc(fullName(f) + ' — line ' + f.ln) + '">' +
+      return '<li class="ti' + (hidden.has(it.fn) ? ' hiddenfn' : '') + '" data-k="' + esc(it.fn) + '" data-text="' + esc((f.n + ' ' + f.l).toLowerCase()) + '" title="' + esc(fullName(f) + ' — line ' + f.ln) + '">' +
         (it.s !== 'same' ? '<span class="dot ' + it.s + '"></span>' : '<span class="nodot"></span>') +
         '<span class="gk fnk">' + (f.o ? 'method' : 'fn') + '</span><span class="lbl"><span class="mono">' + esc(f.n) + '</span>' +
         (f.l !== f.n ? ' <span class="gdesc">' + esc(f.l) + '</span>' : '') + '</span>' +
@@ -2951,6 +3314,77 @@ function changesOf(sets) {
     ' <span class="kw">at line' + (g.lines.length > 1 ? 's' : '') + '</span> ' + g.lines.map(lineLink).join(', ') + '</div>').join('');
 }
 
+/// In the steps, a variable or a value from this function's glossary is a
+/// link: clicking it shows its row (or card) in the glossary above, turning
+/// the page if it is on another one. Steps drawn later — an unfolded branch,
+/// a "+N steps" — are linked as they appear.
+function linkStepNames(fc, panel) {
+  const rows = [...panel.querySelectorAll('table.vars tr.vrow')];
+  const cards = [...panel.querySelectorAll('.gcards .gcard')];
+  const vars = new Set(rows.map((r) => r.dataset.v));
+  const values = new Map(cards.map((c) => [G[c.dataset.g] ? G[c.dataset.g].n : '', c]).filter(([n]) => n));
+  const names = [...vars, ...values.keys()].sort((a, b) => b.length - a.length);
+  if (!names.length) return;
+  const re = new RegExp('\\b(' + names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b', 'g');
+
+  const link = (root) => root.querySelectorAll('code').forEach((codeEl) => {
+    if (codeEl.closest('.code') || codeEl.querySelector('.vref')) return;
+    const walker = codeEl.ownerDocument.createTreeWalker(codeEl, NodeFilter.SHOW_TEXT);
+    const texts = [];
+    while (walker.nextNode()) texts.push(walker.currentNode);
+    for (const t of texts) {
+      if (!re.test(t.data)) { re.lastIndex = 0; continue; }
+      re.lastIndex = 0;
+      const frag = codeEl.ownerDocument.createDocumentFragment();
+      let last = 0, m;
+      while ((m = re.exec(t.data))) {
+        frag.append(t.data.slice(last, m.index));
+        const a = codeEl.ownerDocument.createElement('a');
+        a.className = 'vref';
+        a.dataset.name = m[1];
+        a.textContent = m[1];
+        a.title = vars.has(m[1]) ? 'Variable — show where it starts and changes' : 'Show it in this function’s glossary';
+        frag.append(a);
+        last = m.index + m[1].length;
+      }
+      frag.append(t.data.slice(last));
+      t.replaceWith(frag);
+    }
+  });
+
+  const go = (a) => {
+    const name = a.dataset.name;
+    let target;
+    if (vars.has(name)) {
+      // The declaration in effect at this step: the last one on or above its line.
+      const holder = a.closest('.st, .mp-step, .mp-exit');
+      const at = holder && holder.querySelector('[data-ln]') ? +holder.querySelector('[data-ln]').dataset.ln : Infinity;
+      const same = rows.filter((r) => r.dataset.v === name);
+      target = same.filter((r) => +r.dataset.vln <= at).pop() || same[0];
+      const table = panel.querySelector('table.vars');
+      if (table.showItem) table.showItem(target);
+    } else {
+      target = values.get(name);
+      const box = panel.querySelector('.gcards');
+      if (box && box.showItem) box.showItem(target);
+    }
+    if (!target) return;
+    target.scrollIntoView({ block: 'center', behavior: CALM ? 'auto' : 'smooth' });
+    target.classList.remove('flash');
+    void target.offsetWidth;
+    target.classList.add('flash');
+  };
+  fc.addEventListener('click', (e) => {
+    const a = e.target.closest('a.vref');
+    if (!a) return;
+    e.stopPropagation();
+    e.preventDefault();
+    go(a);
+  }, true);
+  link(fc);
+  new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) link(n); }))).observe(fc, { childList: true, subtree: true });
+}
+
 /// The function's own glossary: its variables — where each starts and
 /// where it changes — and the types and values it touches.
 function fnGlossaryHTML(f) {
@@ -2966,7 +3400,7 @@ function fnGlossaryHTML(f) {
   let h = '<div class="h3"><span>Glossary</span><span class="hint">for this function</span></div>';
   if (vars.length) {
     h += '<div class="gsub">Variables</div><table class="vars"><tr><th>Name</th><th>Type</th><th>Starts as</th><th>Changes</th></tr>' +
-      vars.map((v) => '<tr class="vrow"><td class="mono vn">' + esc(v.n) + (v.m ? ' <span class="tagx">mut</span>' : '') +
+      vars.map((v) => '<tr class="vrow" data-v="' + esc(v.n) + '" data-vln="' + v.ln + '"><td class="mono vn">' + esc(v.n) + (v.m ? ' <span class="tagx">mut</span>' : '') +
         '<div class="vline"><a class="lnref" data-ln="' + v.ln + '" title="Open the code at this line">line ' + v.ln + '</a></div></td>' +
         '<td class="mono">' + (v.t ? linkTypes(v.t) : '<span class="empty">—</span>') + '</td>' +
         '<td>' + (v.i ? startsAs(v.i) : '<span class="empty">set later</span>') + '</td>' +
@@ -3053,25 +3487,266 @@ function wireGlossaryList() {
   });
 }
 
-const matches = (k, q) => (F[k].l + ' ' + fullName(F[k]) + ' ' + F[k].f).toLowerCase().includes(q);
+/// How the search box matches. Plain text: found anywhere in a function's
+/// names. A regular expression — with .* switched on, or written /like this/
+/// — is tested against each name on its own (the function's name, its full
+/// path, its label, its file), so `^get` and `_efile$` anchor to a name.
+/// Case is ignored either way.
+const REGEX_KEY = 'flowlens:search-regex';
+let regexMode = (() => { try { return localStorage.getItem(REGEX_KEY) === '1'; } catch (e) { return false; } })();
+let searcher = { test: () => false, name: () => false, error: null, regex: false };
+const namesOf = (k) => [F[k].n, fullName(F[k]), F[k].l, F[k].f];
+
+function compileSearch(raw) {
+  const slashed = /^\/(.+)\/([a-z]*)$/.exec(raw);
+  if (slashed || regexMode) {
+    try {
+      const flags = 'i' + (slashed ? slashed[2].replace(/[giy]/g, '') : '');
+      const re = new RegExp(slashed ? slashed[1] : raw, flags);
+      return { test: (k) => namesOf(k).some((n) => re.test(n)), name: (n) => re.test(n), error: null, regex: true };
+    } catch (e) {
+      return { test: () => false, name: () => false, error: e.message.replace(/^Invalid regular expression: /, ''), regex: true };
+    }
+  }
+  const q = raw.toLowerCase();
+  return { test: (k) => namesOf(k).join(' ').toLowerCase().includes(q), name: (n) => n.toLowerCase().includes(q), error: null, regex: false };
+}
+
+const matches = (k) => searcher.test(k);
+
+/// Every place a matching function appears on the maps: its box and every
+/// ↪ chip that stands for a call to it elsewhere — in the main map and in a
+/// flow taken out to the side space — in reading order.
+function searchPlaces(q) {
+  const out = [];
+  for (const m of [main, side]) {
+    if (!m || m.wrap.hidden || (m === side && !flowShown())) continue;
+    m.svgEl.querySelectorAll('.node[data-k], .proxy[data-k]').forEach((el) => {
+      if (!el.classList.contains('pager') && matches(el.dataset.k, q)) out.push({ el, map: m });
+    });
+  }
+  const at = (el) => {
+    const r = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(el.style.transform || '') || [0, 0, 0];
+    return [+r[1], +r[2]];
+  };
+  out.sort((a, b) => (a.map === b.map ? 0 : a.map === main ? -1 : 1) ||
+    (state.dir === 'h' ? at(a.el)[0] - at(b.el)[0] || at(a.el)[1] - at(b.el)[1] : at(a.el)[1] - at(b.el)[1] || at(a.el)[0] - at(b.el)[0]));
+  return out;
+}
+
+/// Where Enter is in the list of places, and which functions match but are
+/// not on any map right now.
+const search = { places: [], at: -1, offMap: [] };
+
+/// Mark every place that matches and say how many there are.
+function markSearch() {
+  const q = state.query;
+  document.querySelectorAll('.node.hit, .proxy.hit, .hit-now').forEach((el) => el.classList.remove('hit', 'hit-now'));
+  const count = $('qcount');
+  search.at = -1;
+  if (!q) { search.places = []; search.offMap = []; count.hidden = true; return; }
+  if (searcher.error) {
+    search.places = []; search.offMap = [];
+    count.hidden = false;
+    count.textContent = 'invalid pattern';
+    count.title = searcher.error;
+    return;
+  }
+  search.places = searchPlaces(q);
+  search.places.forEach((p) => p.el.classList.add('hit'));
+  const shownKeys = new Set(search.places.map((p) => p.el.dataset.k));
+  search.offMap = KEYS.filter((k) => onMap(k) && matches(k, q) && !shownKeys.has(k));
+  const n = search.places.length, m = search.offMap.length;
+  count.hidden = false;
+  count.textContent = (n ? plural(n, 'place', 'places') : 'none on the map') + (m ? ' · +' + m + ' not on the map' : '');
+  count.title = 'Enter goes to the next one, Shift+Enter to the one before' + (m ? '; after the map, the ones not on it' : '');
+}
+
+/// Go to the next (or previous) place: select its function and bring that
+/// box or chip into view. Past the places on the map come the matches that
+/// are not on it, which selecting brings onto the map.
+function stepSearch(dir) {
+  if (!state.query) return;
+  const total = search.places.length + search.offMap.length;
+  if (!total) {
+    const entry = GKEYS.find((k) => !(PLAIN && G[k].gone) && searcher.name(G[k].n));
+    if (entry) showEntry(entry, null);
+    return;
+  }
+  search.at = (search.at + dir + total) % total;
+  const count = $('qcount');
+  if (search.at < search.places.length) {
+    const p = search.places[search.at];
+    document.querySelectorAll('.hit-now').forEach((el) => el.classList.remove('hit-now'));
+    select(p.el.dataset.k, false, p.map);
+    // Selecting may redraw; find the same place again by its function and kind.
+    const again = searchPlaces(state.query);
+    const same = again.find((x) => x.map === p.map && x.el.dataset.k === p.el.dataset.k && x.el.classList.contains('proxy') === p.el.classList.contains('proxy')) || again[search.at] || p;
+    again.forEach((x) => x.el.classList.add('hit'));
+    same.el.classList.add('hit-now');
+    same.map.centerOnEl(same.el);
+    search.places = again;
+  } else {
+    const k = search.offMap[search.at - search.places.length];
+    select(k, true);
+    markSearch();
+    const i = search.places.findIndex((x) => x.el.dataset.k === k && !x.el.classList.contains('proxy'));
+    search.at = i;
+    if (i >= 0) search.places[i].el.classList.add('hit-now');
+  }
+  count.textContent = (search.at + 1) + ' of ' + (search.places.length + search.offMap.length);
+}
+
+// ------------------------------------------------------------ pattern helper
+//
+// Ready-made patterns to start from, the reader's own saved ones, and what
+// the signs mean. A pattern's [word] is the part to change: it is selected
+// after the pattern goes in, ready to type over.
+
+const PATTERNS = [
+  ['Starts with', '^[get]', 'names that begin with these letters'],
+  ['Ends with', '[_efile]$', 'names that end with these letters'],
+  ['Exactly', '^[main]$', 'one name, and nothing longer'],
+  ['One of several', '^([add]|[remove])_', 'either word, then the rest'],
+  ['A whole word', '\\b[job]\\b', 'the word on its own, not inside another'],
+  ['Methods of a type', '[Workspace]::', 'everything defined in its impl'],
+  ['In a file or folder', '[update_efile]/', 'everything defined there'],
+  ['Tests', '^test_|::tests::', 'test functions'],
+  ['Has a number', '\\d', 'names with a digit in them'],
+];
+
+const SIGNS_RX = [
+  ['^', 'start of the name'], ['$', 'end of the name'], ['.', 'any one character'],
+  ['*', 'the one before, any number of times'], ['+', 'the one before, once or more'],
+  ['?', 'the one before, maybe'], ['a|b', 'either a or b'], ['( )', 'group: ^(get|set)_'],
+  ['[abc]', 'one of these characters'], ['\\b', 'edge of a word'], ['\\d', 'a digit'],
+  ['\\', 'next sign taken literally: \\.'],
+];
+
+const PATTERNS_KEY = 'flowlens:search-patterns';
+const savedPatterns = () => { try { return JSON.parse(localStorage.getItem(PATTERNS_KEY)) || []; } catch (e) { return []; } };
+const keepPatterns = (list) => { try { localStorage.setItem(PATTERNS_KEY, JSON.stringify(list)); } catch (e) {} };
+
+/// Put a pattern in the search box with regex on. A ready pattern's [word]
+/// is ours — the part to change — and is selected after it goes in; a saved
+/// pattern (`literal`) goes in exactly as it was written.
+function usePattern(p, literal) {
+  const q = $('q');
+  const m = literal ? null : /\[([A-Za-z_]+)\]/.exec(p);
+  const text = literal ? p : p.replace(/\[([A-Za-z_]+)\]/g, '$1');
+  if (!regexMode) $('regexbtn').click();
+  q.value = text;
+  q.dispatchEvent(new Event('input'));
+  q.focus();
+  if (m) {
+    const at = p.slice(0, m.index).replace(/\[([A-Za-z_]+)\]/g, '$1').length;
+    q.setSelectionRange(at, at + m[1].length);
+  }
+}
+
+function renderPatternHelper() {
+  const panel = $('rxpanel');
+  const mine = savedPatterns();
+  const current = $('q').value.trim();
+  let h = '<div class="rx-head"><b>Search patterns</b><button class="rx-x" id="rxclose" title="Fold away (Esc)">✕</button></div>';
+  h += '<div class="rx-sec">Ready patterns <span class="hint">click one, then type over the highlighted part</span></div><ul class="rx-list">' +
+    PATTERNS.map(([name, pat, what], i) => '<li data-i="' + i + '"><span class="rx-name">' + esc(name) + '</span><code>' +
+      esc(pat.replace(/\[([A-Za-z_]+)\]/g, '$1')) + '</code><span class="rx-what">' + esc(what) + '</span></li>').join('') + '</ul>';
+  h += '<div class="rx-sec">Your patterns <span class="hint">kept in this browser</span></div>';
+  h += mine.length ? '<ul class="rx-list mine">' + mine.map((p, i) => '<li data-m="' + i + '"><span class="rx-name">' + esc(p.name) +
+    '</span><code>' + esc(p.pattern) + '</code><button class="rx-del" data-del="' + i + '" title="Remove this pattern">✕</button></li>').join('') + '</ul>'
+    : '<p class="empty rx-empty">None yet — type a search, then save it here.</p>';
+  h += '<div class="rx-save"><input id="rxname" type="text" placeholder="Name for the current search" autocomplete="off"' + (current ? '' : ' disabled') + '>' +
+    '<button id="rxsave"' + (current ? '' : ' disabled') + ' title="Save the search box as one of your patterns">Save</button></div>';
+  h += '<details class="rx-signs"' + (renderPatternHelper.signsOpen ? ' open' : '') + '><summary>What the signs mean</summary><table>' +
+    SIGNS_RX.map(([sg, m]) => '<tr><td><code>' + esc(sg) + '</code></td><td>' + esc(m) + '</td></tr>').join('') + '</table></details>';
+  panel.innerHTML = h;
+  panel.querySelectorAll('li[data-i]').forEach((li) => (li.onclick = () => usePattern(PATTERNS[+li.dataset.i][1])));
+  panel.querySelectorAll('li[data-m]').forEach((li) => (li.onclick = (e) => {
+    if (e.target.closest('.rx-del')) return;
+    const p = savedPatterns()[+li.dataset.m];
+    if (p) usePattern(p.pattern, true);
+  }));
+  panel.querySelectorAll('.rx-del').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const list = savedPatterns();
+    list.splice(+b.dataset.del, 1);
+    keepPatterns(list);
+    renderPatternHelper();
+  }));
+  const save = () => {
+    const pattern = $('q').value.trim();
+    if (!pattern) return;
+    const name = $('rxname').value.trim() || pattern;
+    const list = savedPatterns().filter((p) => p.pattern !== pattern);
+    list.push({ name, pattern });
+    keepPatterns(list);
+    renderPatternHelper();
+  };
+  $('rxsave').onclick = save;
+  $('rxname').onkeydown = (e) => { if (e.key === 'Enter') save(); };
+  $('rxclose').onclick = () => togglePatternHelper(false);
+  panel.querySelector('.rx-signs').addEventListener('toggle', (e) => (renderPatternHelper.signsOpen = e.target.open));
+}
+
+function togglePatternHelper(open) {
+  const panel = $('rxpanel'), btn = $('rxhelp');
+  if (open === undefined) open = panel.hidden;
+  if (open) renderPatternHelper();
+  panel.hidden = !open;
+  btn.classList.toggle('on', open);
+  btn.setAttribute('aria-expanded', String(open));
+}
 
 function wireSearch() {
+  $('rxhelp').onclick = () => togglePatternHelper();
+  // The save row follows what is in the box.
+  $('q').addEventListener('input', () => { if (!$('rxpanel').hidden) {
+    const has = !!$('q').value.trim();
+    $('rxname').disabled = !has;
+    $('rxsave').disabled = !has;
+  } });
   const q = $('q');
-  q.addEventListener('input', () => {
-    state.query = q.value.trim().toLowerCase();
-    document.querySelectorAll('.node').forEach((n) => n.classList.toggle('hit', !!state.query && matches(n.dataset.k, state.query)));
-  });
+  const refresh = () => {
+    state.query = q.value.trim();
+    searcher = compileSearch(state.query);
+    q.classList.toggle('bad', !!searcher.error);
+    q.classList.toggle('regex', searcher.regex);
+    markSearch();
+  };
+  q.addEventListener('input', refresh);
+  const rb = $('regexbtn');
+  const showMode = () => {
+    rb.classList.toggle('on', regexMode);
+    rb.setAttribute('aria-pressed', String(regexMode));
+    q.placeholder = regexMode ? 'Find — regular expression  /' : 'Find a function  /';
+  };
+  rb.onclick = () => {
+    regexMode = !regexMode;
+    try { localStorage.setItem(REGEX_KEY, regexMode ? '1' : '0'); } catch (e) {}
+    showMode();
+    refresh();
+    q.focus();
+  };
+  showMode();
   q.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !state.query) return;
-    const hit = KEYS.filter((k) => onMap(k) && matches(k, state.query)).sort((a, b) => !!main.placed[b] - !!main.placed[a])[0];
-    if (hit) { select(hit, true); return; }
-    const entry = GKEYS.find((k) => !(PLAIN && G[k].gone) && G[k].n.toLowerCase().includes(state.query));
-    if (entry) showEntry(entry, null);
+    e.preventDefault();
+    stepSearch(e.shiftKey ? -1 : 1);
   });
   document.addEventListener('keydown', (e) => {
     if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBack(); return; }
     if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); }
-    if (e.key === 'Escape') { q.value = ''; state.query = ''; select(null, false); }
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && state.selected && onMap(state.selected) && !hidden.has(state.selected)) {
+      e.preventDefault();
+      hideFn(state.selected);
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (!$('rxpanel').hidden) { togglePatternHelper(false); return; }
+      q.value = ''; state.query = ''; markSearch(); select(null, false);
+    }
   });
 }
 
@@ -3291,6 +3966,7 @@ function start() {
   $('o-h').classList.toggle('on', state.dir === 'h');
   $('o-v').classList.toggle('on', state.dir === 'v');
   main = new MapView($('mapwrap'), (expanded) => visible(expanded));
+  wireHidden();
   side = new MapView($('sidewrap'), (expanded) => (flowShown() ? asideView(state.asideOn, expanded) : { nodes: [], edges: [] }), { side: true });
   $('structbtn').onclick = () => (state.structureOpen && state.sideTab === 'structure' && !$('sidewrap').hidden ? closeStructure() : showStructure());
   wireSearch();
