@@ -1,6 +1,6 @@
 [package]
 name = "flowlens"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.86"
 description = "See how your Rust code flows without reading it: an interactive map of every feature, what it calls, and its steps in plain words, plus what a change did."
@@ -9,7 +9,7 @@ repository = "https://github.com/mitanshu-23/flowlens"
 readme = "README.md"
 keywords = ["code-review", "static-analysis", "call-graph", "visualization", "control-flow"]
 categories = ["development-tools", "command-line-utilities", "visualization"]
-include = ["/src", "/tests", "/README.md", "/RUNNING.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/Cargo.toml", "/Cargo.lock"]
+include = ["/src", "/tests", "/README.md", "/RUNNING.md", "/CHANGELOG.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/Cargo.toml", "/Cargo.lock"]
 
 [dependencies]
 ra_ap_syntax = "0.0.293"
