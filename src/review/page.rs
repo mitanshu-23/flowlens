@@ -17,15 +17,27 @@ use super::flow::Step;
 use super::{FnReview, Review};
 use crate::json::{json_list, json_str};
 
+/// The mark: a cog-toothed lens with a flow running through it — a step and
+/// an arrow — and a handle. Drawn in `currentColor`, so it takes the page's rust.
+const LOGO: &str = r#"<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="14" cy="14" r="12" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="4.2 5.22"/><circle cx="14" cy="14" r="10" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="8.6" cy="14" r="2.4" fill="currentColor"/><path d="M10.5 14H16.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.6 10.4 20.4 14 15.6 17.6Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/><path d="M22.6 22.6 29 29" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>"#;
+
+/// The mark as the browser tab's icon, in rust, as a data URL.
+fn favicon() -> String {
+    let svg = LOGO.replace("currentColor", "#b7410e").replace(" aria-hidden=\"true\"", " xmlns=\"http://www.w3.org/2000/svg\"");
+    format!("data:image/svg+xml,{}", svg.replace('"', "'").replace('#', "%23").replace('<', "%3C").replace('>', "%3E"))
+}
+
 pub fn emit(review: &Review) -> String {
     let data = to_json(review);
     let title = format!("{} — what changed", review.crate_name);
+    let body = BODY.replace("LOGO_SVG", LOGO);
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-         <title>{}</title>\n<style>\n{CSS}\n</style>\n</head>\n\
-         <body>\n{BODY}\n<script>\nconst DATA = {data};\n{JS}\n</script>\n</body>\n</html>\n",
-        title.replace('<', "&lt;")
+         <title>{}</title>\n<link rel=\"icon\" href=\"{}\">\n<style>\n{CSS}\n</style>\n</head>\n\
+         <body>\n{body}\n<script>\nconst DATA = {data};\n{JS}\n</script>\n</body>\n</html>\n",
+        title.replace('<', "&lt;"),
+        favicon()
     )
 }
 
@@ -128,7 +140,7 @@ fn rows_json(rows: &[Row]) -> String {
 
 fn step_json(s: &Step) -> String {
     match s {
-        Step::Call { target, args, fallible, crashes, line, .. } => format!("{{\"t\":\"call\",\"k\":{},\"args\":{},\"f\":{fallible},\"x\":{crashes},\"ln\":{line}}}", json_str(target), json_list(args)),
+        Step::Call { target, args, fallible, crashes, handed, line, .. } => format!("{{\"t\":\"call\",\"k\":{},\"args\":{},\"f\":{fallible},\"x\":{crashes},\"h\":{},\"ln\":{line}}}", json_str(target), json_list(args), handed.as_deref().map(json_str).unwrap_or_else(|| "null".into())),
         Step::Set { var, op, value, line } => format!("{{\"t\":\"set\",\"v\":{},\"op\":{},\"val\":{},\"ln\":{line}}}", json_str(var), json_str(op), json_str(value)),
         Step::Exit { kind, detail, line } => format!("{{\"t\":\"exit\",\"e\":{},\"d\":{},\"ln\":{line}}}", json_str(kind.tag()), json_str(detail)),
         Step::Block { kind, header, on, on_call, line, .. } => format!("{{\"t\":\"block\",\"b\":{},\"h\":{},\"on\":{},\"oc\":{},\"ln\":{line}}}", json_str(kind.tag()), json_str(header), json_str(on), on_call.as_deref().map(json_str).unwrap_or_else(|| "null".into())),
@@ -138,12 +150,31 @@ fn step_json(s: &Step) -> String {
 // ------------------------------------------------------------------- page
 
 const BODY: &str = r##"<header class="bar">
-  <div class="title">
-    <h1 id="crate"></h1>
-    <span class="status" id="headline"></span>
-    <span class="against" id="against"></span>
+  <div class="bar-top">
+    <div class="title">
+      <span class="brand" title="flowlens — see how your Rust code flows">LOGO_SVG<b>flowlens</b></span>
+      <h1 id="crate"></h1>
+      <span class="status" id="headline"></span>
+      <span class="against" id="against"></span>
+    </div>
+    <div class="tools sys" aria-label="Page settings">
+      <select class="toolbtn themesel" id="theme" title="Theme — kept in this browser" aria-label="Theme">
+        <option value="">Theme: match my system (Light / Navy)</option>
+        <option value="light">Theme: Light</option>
+        <option value="rust">Theme: Rust</option>
+        <option value="coal">Theme: Coal</option>
+        <option value="navy">Theme: Navy</option>
+        <option value="ayu">Theme: Ayu</option>
+      </select>
+      <select class="toolbtn themesel" id="font" title="Font for the page — kept in this browser" aria-label="Font">
+        <option value="">Font: Grotesk</option>
+        <option value="mono">Font: Monospace</option>
+      </select>
+      <button class="toolbtn" id="signsbtn" aria-expanded="false" title="What the signs, colours and numbers on the map and in the steps mean">Signs</button>
+      <div class="rxpanel signpanel" id="signpanel" hidden role="dialog" aria-label="What the signs mean"></div>
+    </div>
   </div>
-  <div class="tools">
+  <div class="bar-tools tools">
     <div class="seg" role="group" aria-label="What to show">
       <button id="m-changes" class="on" title="Only what changed, and the paths from the features down to it">Changes</button>
       <button id="m-all" title="The whole program as the code is now, compared with nothing">Project flow</button>
@@ -217,37 +248,98 @@ const BODY: &str = r##"<header class="bar">
 </div>"##;
 
 const CSS: &str = r##"
-:root {
-  --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e2e0da; --edge: #b9b6ad;
+/* Themes: the five of the Rust book (mdBook) — Light, Rust, Coal, Navy and
+   Ayu. Without a choice the page does what the book does: Light, or Navy
+   when the system is dark. A choice from the Theme menu sets data-theme on
+   <html>. Every theme keeps the status colours' meaning (amber changed,
+   green new, red removed); the accent is kept clear of the amber, and the
+   logo stays rust. */
+:root, :root[data-theme="light"] {
+  --bg: #ffffff; --card: #fafafa; --ink: #1a1a1a; --muted: #747474; --line: #e6e6e6; --edge: #cccccc;
+  --info: #eef4f8; --info-ink: #20609f; --same: #ffffff; --code: #f6f7f6; --focus: #20609f;
+  --rust: #20609f; --rust-soft: #e3edf6; --copper: #b7410e; --grid: #ececec; --on-rust: #ffffff;
   --add: #e3f3e7; --add-ink: #1e6b34; --add-edge: #3c9a5a;
   --del: #fbe7e4; --del-ink: #a3291b; --del-edge: #c4503f;
   --chg: #fff1cc; --chg-ink: #865600; --chg-edge: #d39b1c;
-  --info: #e6edfd; --info-ink: #2848a8; --same: #ffffff;
-  --code: #f1f0ec; --focus: #2848a8;
+  --brand: #b7410e; color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #141416; --card: #1d1d20; --ink: #ececee; --muted: #9a9aa2; --line: #2d2d32; --edge: #55555d;
-    --add: #15301d; --add-ink: #82d89d; --add-edge: #4fae6c;
-    --del: #3a1c19; --del-ink: #f19a8d; --del-edge: #d0645a;
-    --chg: #362a0e; --chg-ink: #f1c869; --chg-edge: #c9971f;
-    --info: #1c2540; --info-ink: #9db3f5; --same: #1d1d20;
-    --code: #19191b; --focus: #9db3f5;
+  :root:not([data-theme]) {
+  --bg: #161923; --card: #1b1f2c; --ink: #c8c9db; --muted: #8a8ca4; --line: #282d3f; --edge: #4a5068;
+  --info: #262933; --info-ink: #9bbfe0; --same: #1b1f2c; --code: #1d2130; --focus: #3d8fc0;
+  --rust: #3d8fc0; --rust-soft: #1f2a3c; --copper: #282d3f; --grid: #1e2230; --on-rust: #ffffff;
+  --add: #15301d; --add-ink: #82d89d; --add-edge: #4fae6c;
+  --del: #3a1c19; --del-ink: #f19a8d; --del-edge: #d0645a;
+  --chg: #362a0e; --chg-ink: #f1c869; --chg-edge: #c9971f;
+  --brand: #e2733d; color-scheme: dark;
   }
+}
+:root[data-theme="navy"] {
+  --bg: #161923; --card: #1b1f2c; --ink: #c8c9db; --muted: #8a8ca4; --line: #282d3f; --edge: #4a5068;
+  --info: #262933; --info-ink: #9bbfe0; --same: #1b1f2c; --code: #1d2130; --focus: #3d8fc0;
+  --rust: #3d8fc0; --rust-soft: #1f2a3c; --copper: #282d3f; --grid: #1e2230; --on-rust: #ffffff;
+  --add: #15301d; --add-ink: #82d89d; --add-edge: #4fae6c;
+  --del: #3a1c19; --del-ink: #f19a8d; --del-edge: #d0645a;
+  --chg: #362a0e; --chg-ink: #f1c869; --chg-edge: #c9971f;
+  --brand: #e2733d; color-scheme: dark;
+}
+:root[data-theme="rust"] {
+  --bg: #e1e1db; --card: #e9e9e4; --ink: #262625; --muted: #6e6b5e; --line: #cdc9bf; --edge: #b38f6b;
+  --info: #d4d4ce; --info-ink: #2b6d91; --same: #eeeee9; --code: #d6d4cc; --focus: #a8541f;
+  --rust: #a8541f; --rust-soft: #ead8c8; --copper: #3b2e2a; --grid: #d2d2cb; --on-rust: #ffffff;
+  --add: #e3f3e7; --add-ink: #1e6b34; --add-edge: #3c9a5a;
+  --del: #fbe7e4; --del-ink: #a3291b; --del-edge: #c4503f;
+  --chg: #fff1cc; --chg-ink: #865600; --chg-edge: #d39b1c;
+  --brand: #b7410e; color-scheme: light;
+}
+:root[data-theme="coal"] {
+  --bg: #141617; --card: #1b1d1f; --ink: #b3c0cc; --muted: #7d8891; --line: #2b2f33; --edge: #43484d;
+  --info: #242637; --info-ink: #8fb4e0; --same: #1b1d1f; --code: #1d1f21; --focus: #3f82c0;
+  --rust: #3473ad; --rust-soft: #1d2a38; --copper: #292c2f; --grid: #1f2223; --on-rust: #ffffff;
+  --add: #15301d; --add-ink: #82d89d; --add-edge: #4fae6c;
+  --del: #3a1c19; --del-ink: #f19a8d; --del-edge: #d0645a;
+  --chg: #362a0e; --chg-ink: #f1c869; --chg-edge: #c9971f;
+  --brand: #e2733d; color-scheme: dark;
+}
+:root[data-theme="ayu"] {
+  --bg: #0f1419; --card: #14191f; --ink: #c5c5c5; --muted: #8a9199; --line: #1f2630; --edge: #5c6773;
+  --info: #1b2330; --info-ink: #73d0ff; --same: #14191f; --code: #191f26; --focus: #0096cf;
+  --rust: #0096cf; --rust-soft: #102a38; --copper: #ffb454; --grid: #151b22; --on-rust: #ffffff;
+  --add: #15301d; --add-ink: #82d89d; --add-edge: #4fae6c;
+  --del: #3a1c19; --del-ink: #f19a8d; --del-edge: #d0645a;
+  --chg: #362a0e; --chg-ink: #f1c869; --chg-edge: #c9971f;
+  --brand: #e2733d; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  font: 14px/1.45 var(--font); }
+/* Fonts from the Font menu — Grotesk by default, or Monospace. Installed
+   fonts only: the page works offline. */
+:root { --font: "Nimbus Sans", Helvetica, "Helvetica Neue", Arial, "Liberation Sans", sans-serif; }
+:root[data-font="mono"] { --font: ui-monospace, "DejaVu Sans Mono", "Ubuntu Mono", Menlo, Consolas, monospace; }
 code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.88em; }
 code { background: var(--code); padding: 0 4px; border-radius: 4px; overflow-wrap: anywhere; }
 button { font: inherit; color: inherit; }
 
-.bar { position: relative; display: flex; gap: 12px 20px; align-items: center; justify-content: space-between; flex-wrap: wrap;
-  padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+/* Two rows: the page itself — whose project, and its settings — on top;
+   the tools for working with the map below. */
+.bar { position: relative; border-bottom: 1px solid var(--line); background: var(--card); }
+.bar-top { display: flex; gap: 8px 20px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 7px 16px; }
+.bar-tools { padding: 6px 16px 7px; border-top: 1px solid var(--line); background: var(--bg); }
+.tools.sys { gap: 6px; }
+.bar-tools #q { margin-left: auto; }
+.tools.sys .toolbtn { height: 28px; font-size: 12.5px; }
+/* A strip of hot metal along the bottom of the bar. */
+.bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: linear-gradient(90deg, var(--rust), var(--copper) 45%, transparent); pointer-events: none; }
+.brand { display: inline-flex; align-items: center; gap: 7px; color: var(--brand); text-decoration: none; padding-right: 12px; border-right: 1px solid var(--line); }
+.brand svg { width: 24px; height: 24px; flex: none; }
+.brand b { font-size: 12.5px; font-weight: 800; letter-spacing: .02em; color: var(--ink); }
+@media (max-width: 560px) { .brand b { display: none; } .brand { padding-right: 10px; } }
 .title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
-h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
+h1 { margin: 0; font-size: 15.5px; font-weight: 700; white-space: nowrap; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .status { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
   border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .status.changed { background: var(--chg); border-color: var(--chg-edge); color: var(--chg-ink); }
@@ -258,7 +350,7 @@ h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
 .seg button { border: none; background: none; height: 100%; padding: 0 12px; cursor: pointer; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button:hover:not(:disabled):not(.on) { color: var(--ink); background: var(--card); }
-.seg button.on { background: var(--ink); color: var(--bg); }
+.seg button.on { background: var(--rust); color: var(--on-rust); }
 .seg button:disabled { opacity: .45; cursor: not-allowed; }
 .seg.icons button { padding: 0 9px; font-size: 15px; }
 .seg .ic { width: 18px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; }
@@ -322,6 +414,11 @@ h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
 .tree li.ti.hiddenfn .lbl::after { content: ' · hidden'; font-size: 11px; color: var(--muted); }
 .takeout { opacity: 0; transition: opacity .15s; cursor: pointer; }
 .node:hover .takeout, .node:focus .takeout { opacity: 1; }
+/* No square browser outline around a rounded box: a click already selects
+   it, and keyboard focus lights the box's own rounded edge instead. */
+svg.map g:focus { outline: none; }
+.node:focus-visible rect.box, .proxy:focus-visible rect.box { stroke: var(--focus); stroke-width: 3; stroke-dasharray: none; }
+.pg-btn:focus-visible rect { stroke: var(--focus); stroke-width: 2; }
 .takeout rect { fill: var(--card); stroke: var(--line); }
 .takeout text { fill: var(--muted); font-size: 12px; }
 .takeout:hover rect { stroke: var(--focus); }
@@ -335,7 +432,8 @@ h1 { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
 body.popup { display: block; height: 100%; }
 body.popup .panel { border: none; height: 100%; overflow-y: auto; }
 .popnote { margin: 0 0 10px; padding: 8px 10px; background: var(--info); color: var(--info-ink); border-radius: 8px; font-size: 13px; }
-.mapwrap { position: relative; overflow: hidden; min-height: 0; }
+.mapwrap { position: relative; overflow: hidden; min-height: 0;
+  background-color: var(--bg); background-image: radial-gradient(var(--grid) 1.1px, transparent 1.3px); background-size: 22px 22px; }
 .map { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; user-select: none; }
 .map.dragging { cursor: grabbing; }
 .panel { background: var(--card); overflow-y: auto; min-height: 0; min-width: 0; }
@@ -358,8 +456,8 @@ svg.map.focus g.node.hit, svg.map.focus g.proxy.hit { opacity: 1; }
 #q.bad { border-color: var(--del-edge); background: var(--del); }
 .regexbtn { height: 30px; min-width: 32px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; cursor: pointer;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-weight: 700; color: var(--muted); }
-.regexbtn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.regexbtn#rxhelp.on { background: var(--info); color: var(--info-ink); border-color: var(--info-ink); }
+.regexbtn.on { background: var(--rust); color: var(--on-rust); border-color: var(--rust); }
+.regexbtn#rxhelp.on { background: var(--rust-soft); color: var(--rust); border-color: var(--rust); }
 .rxpanel { position: absolute; right: 16px; top: calc(100% + 6px); z-index: 30; width: min(460px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
   background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 10px 12px 12px; font-size: 13px; }
 .rx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -393,7 +491,7 @@ svg.map.focus g.node.hit, svg.map.focus g.proxy.hit { opacity: 1; }
 .qcount { font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .node text { fill: var(--ink); font-size: 13px; }
 .node text.sub { fill: var(--muted); font-size: 10.5px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-.node text.feat { fill: var(--muted); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; }
+.node text.feat { fill: var(--rust); font-size: 9.5px; font-weight: 800; letter-spacing: .08em; }
 .node.removed text.lbl { text-decoration: line-through; }
 .proxy { cursor: pointer; transition: opacity .38s ease; }
 .pager rect.box { fill: var(--card); stroke: var(--edge); stroke-dasharray: none; }
@@ -451,6 +549,25 @@ svg.focus .edge:not(.near) { opacity: .15; }
 
 /* panel */
 .pad { padding: 16px; }
+/* A wide panel — docked below the map, or the details window — reads in two
+   columns: the steps and code on the left, the facts, the glossary and the
+   connections on the right. Narrow, it is one column in the same order. */
+.panel { container-type: inline-size; }
+@container (min-width: 980px) {
+  /* Takes / gives back across the top; the code beside its variables; used
+     by / uses across the bottom. */
+  .fn-body { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(340px, 1fr); grid-template-areas: "facts facts" "main gloss" "conn conn"; column-gap: 28px; align-items: start; }
+  .fn-facts { grid-area: facts; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 4px; }
+  .fn-main { grid-area: main; min-width: 0; }
+  .fn-gloss { grid-area: gloss; min-width: 0; }
+  .fn-conn { grid-area: conn; min-width: 0; }
+  .fn-conn .facts { grid-template-columns: 1fr 1fr; }
+}
+/* Small facts side by side when the panel is wide, stacked when narrow. */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 24px; align-items: start; }
+.facts .rel { min-width: 0; }
+.facts .ends { margin: 0; }
+.facts .ends-none { font-size: 12.5px; }
 .navbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .navbar .back { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .navhome { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 2px 9px; font-size: 12.5px; cursor: pointer; flex: none; margin-left: auto; }
@@ -461,12 +578,12 @@ svg.focus .edge:not(.near) { opacity: .15; }
 .pill.added { background: var(--add); color: var(--add-ink); }
 .pill.removed { background: var(--del); color: var(--del-ink); }
 .pill.same { border: 1px solid var(--line); color: var(--muted); }
-.pill.feature { background: var(--info); color: var(--info-ink); }
-.panel h2 { margin: 8px 0 2px; font-size: 18px; line-height: 1.3; }
+.pill.feature { background: var(--rust-soft); color: var(--rust); }
+.panel h2 { margin: 8px 0 2px; font-size: 18px; line-height: 1.3; overflow-wrap: anywhere; }
 .where { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--chg); color: var(--chg-ink); font-size: 13px; }
 .rel { margin-top: 12px; font-size: 13px; }
-.rel b { font-weight: 600; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 4px; }
+.rel > b { font-weight: 600; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 4px; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .fchip { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 1px 9px; cursor: pointer; font-size: 12.5px; }
 .fchip.changed { background: var(--chg); border-color: var(--chg-edge); }
@@ -507,13 +624,15 @@ svg.focus .edge:not(.near) { opacity: .15; }
 .subj { font-weight: 600; }
 .toolbtn { height: 30px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 8px; padding: 0 11px; cursor: pointer; font-size: 13px; }
 .toolbtn:hover:not(.on) { color: var(--ink); }
-.toolbtn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.toolbtn.on { background: var(--rust); color: var(--on-rust); border-color: var(--rust); }
 .sidetree { position: absolute; left: 0; right: 0; bottom: 0; top: 40px; overflow-y: auto; padding: 12px 14px 20px; background: var(--card); }
 .side.showing-tree .map, .side.showing-tree .zoom { visibility: hidden; }
 .sidetab.struct .go { font-weight: 600; }
 .tree li.ti.cur { background: var(--info); outline: 1px solid var(--focus); }
 .gsub { font-size: 12px; font-weight: 600; color: var(--muted); margin: 10px 0 4px; }
 table.vars { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+/* Name, type and changes stay narrow; what it starts as takes the rest. */
+table.vars th:nth-child(1) { width: 25%; } table.vars th:nth-child(2) { width: 9%; } table.vars th:nth-child(4) { width: 15%; }
 table.vars th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; padding: 3px 6px; border-bottom: 1px solid var(--line); }
 table.vars td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 table.vars .vn { font-weight: 600; white-space: nowrap; }
@@ -629,6 +748,11 @@ table.parts .pd p { margin: 0; }
 .st.set .ic { color: var(--info-ink); }
 .st .ic, .st .no, .st .then, .badge, .end { cursor: help; }
 .st.call .ic, .st.block .ic { cursor: inherit; }
+.signpanel { width: min(520px, calc(100vw - 32px)); }
+.signpanel .key { margin: 0; border: none; background: none; }
+.signpanel .key ul { padding: 4px 0 0; }
+select.themesel { padding: 0 6px; background: var(--card); }
+.toolbtn#signsbtn.on { background: var(--rust-soft); color: var(--rust); border-color: var(--rust); }
 .key { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12.5px; }
 .key summary { cursor: pointer; padding: 7px 10px; font-weight: 600; color: var(--muted); }
 .key summary:hover { color: var(--ink); }
@@ -673,9 +797,19 @@ table.parts .pd p { margin: 0; }
 .summary { font-size: 14px; margin: 0 0 4px; }
 .sub { color: var(--muted); font-size: 13px; margin: 0; }
 
-.code { margin-top: 8px; overflow: auto; background: var(--code); border-radius: 8px; max-height: 70vh; }
+/* The code is shown whole: long lines wrap (a wrapped part hangs in a
+   little) and the panel scrolls, not a box of its own. */
+.code { margin-top: 8px; background: var(--code); border-radius: 8px; padding: 4px 0; }
 .code table { border-collapse: collapse; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
 .code td { padding: 0 8px; white-space: pre; vertical-align: top; }
+.code table { width: 100%; table-layout: fixed; }
+.code td.n { width: calc(4ch + 16px); }
+.code td.s { display: flex; }
+/* Each indent is its spaces wide — unless the deepest line would then take
+   more than about a third of the panel: every level is scaled down alike, so the
+   nesting still reads and the code keeps its room. */
+.code td.s .ind { white-space: pre; flex: none; overflow: hidden; width: calc(var(--n) * min(1ch, 32cqw / var(--deepest))); }
+.code td.s .txt { white-space: pre-wrap; overflow-wrap: anywhere; flex: 1 1 0; min-width: 0; padding-left: 4ch; text-indent: -4ch; }
 .code td.n { color: var(--muted); text-align: right; user-select: none; }
 .code .c-kw { color: var(--info-ink); font-weight: 600; }
 .code .c-str { color: var(--add-ink); }
@@ -683,6 +817,8 @@ table.parts .pd p { margin: 0; }
 .code tr.flash td, tr.vrow.flash td { animation: flash 1.8s ease-out; }
 .gcard.flash { animation: flash 1.8s ease-out; }
 a.vref { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
+a.fref { color: var(--rust); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--rust) 45%, transparent); text-underline-offset: 2px; cursor: pointer; }
+a.fref:hover, a.vref:hover { text-decoration-style: solid; }
 a.vref:hover { color: var(--focus); }
 @keyframes flash { 0%, 40% { background: var(--chg); } 100% { background: transparent; } }
 .code-note { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }
@@ -709,6 +845,15 @@ a.vref:hover { color: var(--focus); }
 
 const JS: &str = r##"
 const $ = (id) => document.getElementById(id);
+
+// The reader's theme and font, set before anything is drawn so the page does
+// not flash the defaults first. Empty means the default: the system's.
+const LOOKS = { theme: 'flowlens:theme', font: 'flowlens:font' };
+for (const [what, key] of Object.entries(LOOKS)) {
+  let v = '';
+  try { v = localStorage.getItem(key) || ''; } catch (e) {}
+  if (v) document.documentElement.dataset[what] = v;
+}
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const code = (s) => '<code>' + esc(s) + '</code>';
 /// Text cut short with "…": a click shows it whole, another shortens it again.
@@ -868,7 +1013,6 @@ function visible(expanded) {
       level = next;
     }
   }
-  for (const k of expanded) if (onMap(k)) { nodes.add(k); calls(k).forEach((c) => nodes.add(c)); }
   // A function picked from search or the panel that is not on the map comes
   // with its path back to a feature, so it does not float on its own —
   // unless it is already in the side space.
@@ -876,6 +1020,16 @@ function visible(expanded) {
   if (sel && onMap(sel) && !nodes.has(sel) && !(side && side.placed[sel])) {
     for (const a of ancestors(sel)) nodes.add(a);
     nodes.add(sel);
+  }
+  // An unfold counts only while its box is on the map: once a box above it
+  // folds away, what it had opened goes too. Repeated, since one unfold can
+  // bring in the box of another.
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const k of expanded) {
+      if (!nodes.has(k) || !onMap(k)) continue;
+      for (const c of calls(k)) if (!nodes.has(c)) { nodes.add(c); grew = true; }
+    }
   }
   return pruneAside(nodes);
 }
@@ -1243,6 +1397,45 @@ function clip(s, px) {
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
+/// Put `text` in an SVG text element, cut with "…" so it fits in `px` as
+/// drawn in the font in use — not by counting characters, which a wide font
+/// would overrun. `fromEnd` keeps the end (a file name and line) instead of
+/// the start. Widths come from a canvas, so the map does not lay out again
+/// for every box.
+const measure = document.createElement('canvas').getContext('2d');
+const fontOf = new Map();
+function fitText(el, text, px, fromEnd) {
+  el.textContent = text;
+  const key = el.parentNode.getAttribute('class').split(' ')[0] + ' ' + el.getAttribute('class') + ' ' + (document.documentElement.dataset.font || '');
+  let font = fontOf.get(key);
+  if (!font) {
+    const cs = getComputedStyle(el);
+    font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    fontOf.set(key, font);
+  }
+  measure.font = font;
+  if (measure.measureText(text).width <= px) return;
+  const longest = (cut, n) => {
+    let lo = 0, hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (measure.measureText(cut(mid)).width <= px) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  };
+  // `Type::method`: the method tells two boxes apart, so the type is what
+  // gets shorter — `BasenameLit…::matches_all` — while there is room.
+  const sep = fromEnd ? -1 : text.lastIndexOf('::');
+  if (sep > 0) {
+    const owner = text.slice(0, sep), rest = text.slice(sep);
+    const cut = (n) => owner.slice(0, n) + '…' + rest;
+    const n = longest(cut, owner.length - 1);
+    if (n >= 3) { el.textContent = cut(n); return; }
+  }
+  const cut = (n) => fromEnd ? '…' + text.slice(text.length - n) : text.slice(0, n) + '…';
+  el.textContent = cut(longest(cut, text.length - 1));
+}
+
 /// Motion helps the eye follow a box to its new place; skip it for readers
 /// who asked their system for less motion.
 const CALM = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1377,7 +1570,7 @@ class MapView {
         ? F[px.u].l + ' calls back to ' + f.l + ', which is above it. Click to go there.'
         : F[px.u].l + ' also calls ' + f.l + '. Its box is drawn where it is first called. Click to go there.';
       svg('rect', { class: 'box', width: W, height: PH, rx: PH / 2 }, g);
-      svg('text', { class: 'lbl', x: 12, y: 19.5 }, g).textContent = clip((px.back ? '↺ calls back to ' : '↪ ') + fnName(f), W - 24);
+      fitText(svg('text', { class: 'lbl', x: 12, y: 19.5 }, g), (px.back ? '↺ calls back to ' : '↪ ') + fnName(f), W - 24);
       const real = () => this.gN.querySelector('.node[data-k="' + CSS.escape(px.v) + '"]');
       g.addEventListener('mouseenter', () => real()?.classList.add('hover'));
       g.addEventListener('mouseleave', () => real()?.classList.remove('hover'));
@@ -1419,9 +1612,10 @@ class MapView {
       const bh = p.h || H;
       svg('rect', { class: 'box', width: W, height: bh, rx: 9 }, g);
       if (f.ft) svg('text', { class: 'feat', x: 12, y: -5 }, g).textContent = 'FEATURE';
-      svg('text', { class: 'lbl', x: 12, y: 21 }, g).textContent = clip(fnName(f), W - 24);
-      // Where it is defined: file and line; hover for the full path.
-      svg('text', { class: 'sub', x: 12, y: 38 }, g).textContent = whereShort(f, Math.floor((W - 60) / 6.3));
+      fitText(svg('text', { class: 'lbl', x: 12, y: 21 }, g), fnName(f), W - 24);
+      // Where it is defined: file and line, clear of the +N chip; hover for
+      // the full path.
+      fitText(svg('text', { class: 'sub', x: 12, y: 38 }, g), whereShort(f, Infinity), W - 62, true);
       if (takenOut) {
         // Marker for a flow that now lives in the side space.
         const m = svg('g', { class: 'asidechip', transform: 'translate(' + (W - 104) + ',' + (bh - 22) + ')' }, g);
@@ -1439,7 +1633,21 @@ class MapView {
           svg('title', {}, m).textContent = open && !hidden ? 'Fold its calls back' : 'Show ' + plural(hidden, 'more function', 'more functions') + ' it calls';
           m.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            if (open && !hidden) this.expanded.delete(k); else this.expanded.add(k);
+            if (open && !hidden) {
+              // Folding a box folds everything opened below it, so opening it
+              // again starts from its own calls, not the old unfolds. A
+              // selection down there moves up to this box: it would otherwise
+              // hold its path open.
+              this.expanded.delete(k);
+              const below = new Set(), queue = [k];
+              while (queue.length) for (const c of calls(queue.shift())) if (!below.has(c)) { below.add(c); queue.push(c); }
+              const was = state.selected;
+              const moveUp = was && was !== k && below.has(was);
+              if (moveUp) state.selected = k;
+              const still = new Set(this.source(this.expanded).nodes);
+              for (const e of [...this.expanded]) if (!still.has(e)) this.expanded.delete(e);
+              if (moveUp) { state.selected = was; select(k, false, this); }
+            } else this.expanded.add(k);
             this.draw(false);
           });
         }
@@ -1460,8 +1668,20 @@ class MapView {
         svg('title', {}, x).textContent = 'Hide from the map (Delete) — restore it from “hidden”';
         x.addEventListener('click', (ev) => { ev.stopPropagation(); hideFn(k); });
       }
-      g.addEventListener('click', () => select(k, false, this));
-      g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') select(k, false, this); });
+      // Picking a box also unfolds what it calls, as its +N would; − folds
+      // them back.
+      const pick = () => {
+        const unfold = !takenOut && calls(k).some((c) => !shown.has(c) && !isHidden(c));
+        select(k, false, this);
+        // A collapsed map already shows the picked box with what it calls.
+        if (unfold && state.focus !== k && !this.expanded.has(k)) {
+          this.expanded.add(k);
+          this.draw(false);
+          this.reveal(k);
+        }
+      };
+      g.addEventListener('click', pick);
+      g.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') pick(); });
     }
 
     this.focusNear();
@@ -2030,6 +2250,8 @@ function stepText(s, prevCall) {
   if (s.t === 'call') {
     const f = F[s.k];
     let h = f ? labelHTML(f) : esc(s.k);
+    // Named, not called: whatever it is given to runs it.
+    if (s.h != null) return 'Hand ' + h + (s.h ? ' to ' + code(s.h) : ' on') + ' <span class="q">· not run here</span>';
     if (s.args.length) {
       const a = s.args.join(', ');
       h += ' <span class="args mono">(' + cut(a, 40) + ')</span>';
@@ -2043,11 +2265,12 @@ function stepText(s, prevCall) {
 }
 
 const ICON = { call: '→', block: '◇', for: '↻', while: '↻', loop: '↻', fail: '!', crash: '✕', todo: '✕', exit: '■', return: '■', break: '■', continue: '↷' };
-const iconOf = (s) => s.t === 'set' ? '≔' : s.t === 'call' ? ICON.call : s.t === 'block' ? (ICON[s.b] || ICON.block) : (ICON[s.e] || '■');
+const iconOf = (s) => s.t === 'set' ? '≔' : s.t === 'call' ? (s.h != null ? '↦' : ICON.call) : s.t === 'block' ? (ICON[s.b] || ICON.block) : (ICON[s.e] || '■');
 
 /// What each sign means: shown in the key under the steps, and on hover.
 const SIGNS = [
   ['→', 'call', 'Runs another of your functions. Click to open it.'],
+  ['↦', 'call', 'Hands one of your functions to other code, which runs it — a route handler, a callback, a task to start. It does not run at this step. Click to open it.'],
   ['◇', 'decision', 'A decision: the steps inside run only when the condition holds. Click to fold.'],
   ['↻', 'loop', 'A loop: the steps inside can run many times. Click to fold.'],
   ['≔', 'set', 'Sets a value that a decision further on reads — a flag or a counter.'],
@@ -2068,10 +2291,11 @@ const BADGES = [
 const BADGE_TEXT = Object.fromEntries(BADGES.map(([cls, , text]) => [cls, text]));
 const badge = (cls, label) => '<span class="badge ' + cls + '" title="' + esc(BADGE_TEXT[cls]) + '">' + label + '</span>';
 
-/// The key in the overview: every sign and badge on the steps, in a line each.
+/// The key, opened from the header: every sign and badge on the steps, in a
+/// line each.
 function signKey() {
   const row = (mark, text) => '<li><span class="key-mark">' + mark + '</span><span>' + text + '</span></li>';
-  return '<details class="key" id="signkey"><summary>What the signs mean</summary><ul>' +
+  return '<div class="key"><ul>' +
     SIGNS.map(([sign, cls, text]) => row('<span class="key-ic ' + cls + '">' + sign + '</span>', esc(text))).join('') +
     row('<span class="key-ic">A → B</span>', 'On one line: when A holds, B happens.') +
     row('<span class="key-ic gate">◆</span>', 'Main path: the path carries on only when this holds; the other cases hang off it as exits.') +
@@ -2084,7 +2308,20 @@ function signKey() {
     row('<span class="key-fold">⋯ steps 4–6</span>', 'Steps that did not change, folded away. Click to show them.') +
     BADGES.map(([cls, label, text]) => row('<span class="badge ' + cls + '">' + label + '</span>', esc(text))).join('') +
     row('<code>code</code>', 'Quoted from the source where there is no plain way to say it. Hover for the full text.') +
-    '</ul></details>';
+    '</ul></div>';
+}
+
+function toggleSigns(open) {
+  const panel = $('signpanel'), btn = $('signsbtn');
+  if (open === undefined) open = panel.hidden;
+  if (open) {
+    togglePatternHelper(false);
+    panel.innerHTML = '<div class="rx-head"><b>What the signs mean</b><button class="rx-x" id="signclose" title="Close (Esc)">✕</button></div>' + signKey();
+    $('signclose').onclick = () => toggleSigns(false);
+  }
+  panel.hidden = !open;
+  btn.classList.toggle('on', open);
+  btn.setAttribute('aria-expanded', String(open));
 }
 
 // ------------------------------------------------------------ flowchart
@@ -2146,8 +2383,6 @@ const errorStops = (rows) => rows.reduce((n, r) => {
 /// Whether error handling is shown; `null` until the reader chooses, and
 /// until then decided by how long the function is.
 let showErrors = null;
-/// Whether the key to the signs is open; it starts open so it is seen once.
-let keyOpen = true;
 const LONG_FUNCTION = 12;
 
 /// Long lists in the details — the glossary, a function's variables — show
@@ -2606,7 +2841,7 @@ function mainPath(box, rows, prefix, opts) {
 }
 
 /// Which way the steps are shown: the main path, or every step in order.
-let stepView = 'all';
+let stepView = 'code';
 
 const countSteps = (rows) => rows.reduce((n, r) => n + 1 + countSteps(r.c), 0);
 
@@ -2675,9 +2910,31 @@ function highlight(line) {
 /// lines marked +, removed ones −. Each row carries its line numbers, so a
 /// step can point at its own line.
 function codeTable(f) {
-  return '<div class="code"><table>' + f.code.map(([m, b, a, t]) =>
+  // Before and now numbers only when the lines differ; otherwise one.
+  const two = f.s === 'changed';
+  // Indents, measured in spaces (a tab as four): the part every line shares
+  // is dropped, and the deepest one sets how far the rest can be scaled down
+  // in a narrow panel.
+  const leads = f.code.filter(([, , , t]) => /\S/.test(t)).map(([, , , t]) => indentOf(t));
+  const base = leads.length ? Math.min(...leads) : 0;
+  const deepest = Math.max(1, ...leads.map((n) => n - base));
+  return '<div class="code"><table style="--deepest:' + deepest + '">' + f.code.map(([m, b, a, t]) =>
     '<tr class="' + m + '"' + (b ? ' data-b="' + b + '"' : '') + (a ? ' data-a="' + a + '"' : '') + '>' +
-    '<td class="n">' + (b || '') + '</td><td class="n">' + (a || '') + '</td><td class="s">' + highlight(t) + '</td></tr>').join('') + '</table></div>';
+    (two ? '<td class="n">' + (b || '') + '</td><td class="n">' + (a || '') + '</td>' : '<td class="n">' + (a || b || '') + '</td>') +
+    '<td class="s">' + srcLine(t, base) + '</td></tr>').join('') + '</table></div>';
+}
+
+/// How far a line is indented, in spaces; a tab counts as four.
+const indentOf = (t) => /^[ \t]*/.exec(t)[0].replace(/\t/g, '    ').length;
+
+/// A source line that may wrap: its indent kept apart, so a wrapped part
+/// lines up under the line's own text, a little in, as an editor wraps. The
+/// indent's width is set in the stylesheet from `--n`, so a narrow panel
+/// can scale every level down alike instead of squeezing the code.
+function srcLine(t, base) {
+  const [, lead, rest] = /^(\s*)([\s\S]*)$/.exec(t);
+  const n = /\S/.test(t) ? Math.max(0, indentOf(t) - base) : 0;
+  return '<span class="ind" style="--n:' + n + '">' + lead.replace(/\t/g, '    ').slice(base) + '</span><span class="txt">' + highlight(rest) + '</span>';
 }
 
 /// The line a step stands for: on the "now" side when it exists there.
@@ -2737,31 +2994,34 @@ function showFunction(k) {
   }
   if (f.sig) h += '<p class="note">Takes different inputs now: ' + code(f.sig[0]) + ' → ' + code(f.sig[1]) + '</p>';
   if (f.doc) h += '<div class="doc">' + docHTML(f.doc) + '</div>';
-  if (f.p.length || f.r) {
-    h += '<div class="rel"><b>Takes</b>' + (f.p.length ? '<ul class="params">' + f.p.map(([n, t]) =>
-      '<li><span class="mono pn">' + esc(n) + '</span> <span class="mono pt">' + linkTypes(t) + '</span></li>').join('') + '</ul>' : '<span class="empty">nothing</span>') + '</div>';
-    if (f.r) h += '<div class="rel"><b>Gives back</b><code>' + linkTypes(f.r) + '</code></div>';
-  }
   if (f.d) h += '<p class="note">Same steps, but something inside changed — a value, a condition, or a library call. See the code.</p>';
   if (f.s === 'same' && f.cb.length) h += '<p class="note">Unchanged itself, but leads to: ' + f.cb.map((c) => esc(F[c].l)).join(', ') + '</p>';
   if (f.s === 'added') h += '<p class="note" style="background:var(--add);color:var(--add-ink)">New — this did not exist before.</p>';
   if (f.s === 'removed') h += '<p class="note" style="background:var(--del);color:var(--del-ink)">Removed — these are the steps it used to take.</p>';
-  h += '<div class="rel"><b>Used by</b>' + (f.ft ? '<span class="empty">nothing — it is where a feature starts</span>' : chipList(by, (c) => linkKind(c, k))) + '</div>';
-  h += '<div class="rel"><b>Uses</b>' + chipList(calls(k), (c) => linkKind(k, c)) + '</div>';
-  h += '<div class="h3"><span>How it can end</span></div>' + endingsHTML(f);
-  // The function's vocabulary first, so the steps read with it in mind.
-  h += fnGlossaryHTML(f);
+  // The body: steps as the main column; facts, glossary and connections
+  // beside them when the panel is wide, around them when it is narrow.
+  h += '<div class="fn-body"><div class="fn-facts facts">';
+  h += '<div class="rel"><b>Takes</b>' + (f.p.length ? '<ul class="params">' + f.p.map(([n, t]) =>
+    '<li><span class="mono pn">' + esc(n) + '</span> <span class="mono pt">' + linkTypes(t) + '</span></li>').join('') + '</ul>' : '<span class="empty">nothing</span>') + '</div>';
+  h += '<div class="rel"><b>Gives back</b>' + (f.r ? '<code>' + linkTypes(f.r) + '</code>' : '<span class="empty">nothing</span>') + '</div>';
+  h += '<div class="rel"><b>How it can end</b>' + endingsHTML(f) + '</div>';
+  h += '</div><div class="fn-main">';
   const total = countSteps(f.rows), errs = errorStops(f.rows);
   const errorsShown = showErrors === null ? total <= LONG_FUNCTION : showErrors;
   h += '<div class="h3"><span>Steps</span><span class="stepviews">' +
     '<span class="seg mini" role="group" aria-label="How to show the steps">' +
+    '<button id="sv-code" class="' + (stepView === 'code' ? 'on' : '') + '" title="The source, with what changed marked">Code</button>' +
     '<button id="sv-all" class="' + (stepView === 'all' ? 'on' : '') + '" title="Every step in code order, numbered">All steps</button>' +
-    '<button id="sv-main" class="' + (stepView === 'main' ? 'on' : '') + '" title="The path the code normally takes; branches that only stop hang off it">Main path</button>' +
-    '<button id="sv-code" class="' + (stepView === 'code' ? 'on' : '') + '" title="The source, with what changed marked">Code</button></span>' +
+    '<button id="sv-main" class="' + (stepView === 'main' ? 'on' : '') + '" title="The path the code normally takes; branches that only stop hang off it">Main path</button></span>' +
     (errs && stepView === 'all'
       ? '<button class="link" id="errtoggle" title="Error handling: stops with an error or a crash">' + (errorsShown ? 'Hide error handling' : 'Show error handling') + '</button>'
-      : '') + '</span></div><div class="fc" id="fc"></div>';
-  h += '</div>';
+      : '') + '</span></div><div class="fc" id="fc"></div></div>';
+  // After the steps: the words they use, then how it connects to the rest.
+  h += '<div class="fn-gloss">' + fnGlossaryHTML(f) + '</div>';
+  h += '<div class="fn-conn"><div class="h3"><span>Connections</span></div><div class="facts links">' +
+    '<div class="rel"><b>Used by</b>' + (f.ft ? '<span class="empty">nothing — it is where a feature starts</span>' : chipList(by, (c) => linkKind(c, k))) + '</div>' +
+    '<div class="rel"><b>Uses</b>' + chipList(calls(k), (c) => linkKind(k, c)) + '</div></div></div>';
+  h += '</div></div>';
   panel.innerHTML = h;
   const fc = P('fc');
   const stepOpts = { fold: f.s !== 'added' && f.s !== 'removed' && f.rows.some(leads), errors: errorsShown, sets: setSites(f.rows, '', {}), loopNames: loopNames(f.rows) };
@@ -2782,11 +3042,13 @@ function showFunction(k) {
   } else if (f.rows.length) {
     flowchart(fc, f.rows, '', stepOpts);
   }
-  else fc.innerHTML = '<p class="empty">No steps of its own — it only uses library code.</p>';
+  // Nothing to put in words — all it does is call library code, like
+  // building a router — so show that code rather than an empty space.
+  else fc.innerHTML = '<p class="code-note">No steps of its own: everything it does is done by library code, shown here.</p>' + codeTable(f);
   wireNav();
   wireGlossary(panel, k);
   paginate(panel.querySelector('table.vars'), 'tr.vrow');
-  if (stepView !== 'code') linkStepNames(fc, panel);
+  linkStepNames(fc, panel, k);
   paginate(panel.querySelector('.gcards'), '.gcard');
   // A line number in the glossary opens the code at that line.
   panel.querySelectorAll('.lnref').forEach((a) => (a.onclick = (ev) => {
@@ -2919,7 +3181,7 @@ function summaryHTML() {
       (PLAIN ? '' : '<p class="sub" style="margin-top:8px">Once the project is committed to git, run this again after a change and the map will show what changed.</p>');
     h += '<div class="h3"><span>Features</span></div><ul class="list">' + shown.map((ft) =>
       '<li data-k="' + esc(ft.k) + '"><span class="lbl">' + nameHTML(ft.k) + '</span><span class="where mono">' + esc(fullName(F[ft.k])) + '</span></li>').join('') + '</ul>';
-    return h + signKey();
+    return h;
   }
   if (!changedFns.length && !DATA.tests.length) {
     h += '<p class="summary"><b>Nothing changed.</b></p><p class="sub">Every feature works the same as before. Click any box on the map to see its steps.</p>';
@@ -3025,18 +3287,10 @@ function showOverview() {
   noteView({ t: 'overview' });
   let h = '<div class="pad">' + navBar() + '<div class="seg ovtabs" role="tablist">' + tabs.map(([id, name, tip]) =>
     '<button data-tab="' + id + '" class="' + (overviewTab === id ? 'on' : '') + '" title="' + tip + '">' + name + '</button>').join('') + '</div>';
-  // The key explains the signs on every function's steps, so it sits here
-  // once rather than under each function.
-  const sum = overviewTab === 'summary' ? summaryHTML() : '';
-  h += overviewTab === 'glossary' ? glossaryHTML() : sum.includes('id="signkey"') ? sum : sum + signKey();
+  h += overviewTab === 'glossary' ? glossaryHTML() : summaryHTML();
   h += '</div>';
   const panel = P('panel');
   panel.innerHTML = h;
-  const key = P('signkey');
-  if (key) {
-    key.open = keyOpen;
-    key.addEventListener('toggle', () => (keyOpen = key.open));
-  }
   panel.querySelectorAll('.ovtabs button').forEach((b) => (b.onclick = () => {
     overviewScroll[overviewTab] = panel.scrollTop;
     overviewTab = b.dataset.tab;
@@ -3314,36 +3568,49 @@ function changesOf(sets) {
     ' <span class="kw">at line' + (g.lines.length > 1 ? 's' : '') + '</span> ' + g.lines.map(lineLink).join(', ') + '</div>').join('');
 }
 
-/// In the steps, a variable or a value from this function's glossary is a
-/// link: clicking it shows its row (or card) in the glossary above, turning
-/// the page if it is on another one. Steps drawn later — an unfolded branch,
-/// a "+N steps" — are linked as they appear.
-function linkStepNames(fc, panel) {
+/// In the steps and the code, a variable or a value from this function's
+/// glossary is a link: clicking it shows its row (or card) in the glossary,
+/// turning the page if it is on another one. In the code, a call to one of
+/// the user's functions opens that function too. Steps drawn later — an
+/// unfolded branch, a "+N steps" — are linked as they appear.
+function linkStepNames(fc, panel, k) {
   const rows = [...panel.querySelectorAll('table.vars tr.vrow')];
   const cards = [...panel.querySelectorAll('.gcards .gcard')];
   const vars = new Set(rows.map((r) => r.dataset.v));
   const values = new Map(cards.map((c) => [G[c.dataset.g] ? G[c.dataset.g].n : '', c]).filter(([n]) => n));
-  const names = [...vars, ...values.keys()].sort((a, b) => b.length - a.length);
+  // The functions it calls, by the name the code uses for them.
+  const fns = new Map();
+  for (const c of [...(F[k].ce || []), ...(F[k].cbe || [])]) if (F[c] && !fns.has(F[c].n)) fns.set(F[c].n, c);
+  const names = [...new Set([...vars, ...values.keys(), ...fns.keys()])].sort((a, b) => b.length - a.length);
   if (!names.length) return;
   const re = new RegExp('\\b(' + names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b', 'g');
 
-  const link = (root) => root.querySelectorAll('code').forEach((codeEl) => {
-    if (codeEl.closest('.code') || codeEl.querySelector('.vref')) return;
+  // Quoted code in the steps, and the source lines of the code view — but
+  // not its strings and comments.
+  const link = (root) => [...root.querySelectorAll('code'), ...root.querySelectorAll('.code td.s')].forEach((codeEl) => {
+    if ((codeEl.tagName === 'CODE' && codeEl.closest('.code')) || codeEl.querySelector('.vref, .fref')) return;
     const walker = codeEl.ownerDocument.createTreeWalker(codeEl, NodeFilter.SHOW_TEXT);
     const texts = [];
-    while (walker.nextNode()) texts.push(walker.currentNode);
+    while (walker.nextNode()) if (!walker.currentNode.parentNode.closest('.c-str, .c-com')) texts.push(walker.currentNode);
     for (const t of texts) {
       if (!re.test(t.data)) { re.lastIndex = 0; continue; }
       re.lastIndex = 0;
       const frag = codeEl.ownerDocument.createDocumentFragment();
       let last = 0, m;
       while ((m = re.exec(t.data))) {
+        // After a dot it is a method or a field: only one of the user's
+        // methods is linked there — `data.get(..)` is not their `get`.
+        const dotted = t.data.slice(0, m.index).trimEnd().endsWith('.');
+        const fnHere = fns.get(m[1]);
+        if (dotted && !(fnHere && F[fnHere].o)) continue;
         frag.append(t.data.slice(last, m.index));
         const a = codeEl.ownerDocument.createElement('a');
-        a.className = 'vref';
+        const fn = dotted ? fnHere : !vars.has(m[1]) && !values.has(m[1]) ? fnHere : null;
+        a.className = fn ? 'fref' : 'vref';
         a.dataset.name = m[1];
+        if (fn) a.dataset.k = fn;
         a.textContent = m[1];
-        a.title = vars.has(m[1]) ? 'Variable — show where it starts and changes' : 'Show it in this function’s glossary';
+        a.title = fn ? 'Open ' + fullName(F[fn]) : vars.has(m[1]) ? 'Variable — show where it starts and changes' : 'Show it in this function’s glossary';
         frag.append(a);
         last = m.index + m[1].length;
       }
@@ -3356,9 +3623,12 @@ function linkStepNames(fc, panel) {
     const name = a.dataset.name;
     let target;
     if (vars.has(name)) {
-      // The declaration in effect at this step: the last one on or above its line.
+      // The declaration in effect at this step or line: the last one on or
+      // above it.
       const holder = a.closest('.st, .mp-step, .mp-exit');
-      const at = holder && holder.querySelector('[data-ln]') ? +holder.querySelector('[data-ln]').dataset.ln : Infinity;
+      const row = a.closest('.code tr');
+      const at = row ? +(row.dataset.a || row.dataset.b || Infinity)
+        : holder && holder.querySelector('[data-ln]') ? +holder.querySelector('[data-ln]').dataset.ln : Infinity;
       const same = rows.filter((r) => r.dataset.v === name);
       target = same.filter((r) => +r.dataset.vln <= at).pop() || same[0];
       const table = panel.querySelector('table.vars');
@@ -3375,6 +3645,8 @@ function linkStepNames(fc, panel) {
     target.classList.add('flash');
   };
   fc.addEventListener('click', (e) => {
+    const f = e.target.closest('a.fref');
+    if (f) { e.stopPropagation(); e.preventDefault(); select(f.dataset.k, true); return; }
     const a = e.target.closest('a.vref');
     if (!a) return;
     e.stopPropagation();
@@ -3692,7 +3964,7 @@ function renderPatternHelper() {
 function togglePatternHelper(open) {
   const panel = $('rxpanel'), btn = $('rxhelp');
   if (open === undefined) open = panel.hidden;
-  if (open) renderPatternHelper();
+  if (open) { renderPatternHelper(); toggleSigns(false); }
   panel.hidden = !open;
   btn.classList.toggle('on', open);
   btn.setAttribute('aria-expanded', String(open));
@@ -3700,6 +3972,7 @@ function togglePatternHelper(open) {
 
 function wireSearch() {
   $('rxhelp').onclick = () => togglePatternHelper();
+  $('signsbtn').onclick = () => toggleSigns();
   // The save row follows what is in the box.
   $('q').addEventListener('input', () => { if (!$('rxpanel').hidden) {
     const has = !!$('q').value.trim();
@@ -3745,6 +4018,7 @@ function wireSearch() {
     }
     if (e.key === 'Escape') {
       if (!$('rxpanel').hidden) { togglePatternHelper(false); return; }
+      if (!$('signpanel').hidden) { toggleSigns(false); return; }
       q.value = ''; state.query = ''; markSearch(); select(null, false);
     }
   });
@@ -3834,7 +4108,8 @@ function openWindow() {
   if (!w) return false;
   const css = document.querySelector('style').textContent;
   w.document.open();
-  w.document.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+  const looks = Object.keys(LOOKS).map((what) => document.documentElement.dataset[what] ? ' data-' + what + '="' + esc(document.documentElement.dataset[what]) + '"' : '').join('');
+  w.document.write('<!doctype html><html lang="en"' + looks + '><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<title>' + esc(DATA.crate) + ' — details</title><style>' + css + '</style></head><body class="popup"><aside class="panel" id="panel"></aside></body></html>');
   w.document.close();
   wireCuts(w.document);
@@ -3945,7 +4220,34 @@ function showHeader() {
   document.querySelector('.legend').hidden = plain;
 }
 
+/// The Theme and Font menus: each sets `data-theme` / `data-font` on this
+/// page and the details window, and is kept in this browser.
+function wireLooks() {
+  for (const [what, key] of Object.entries(LOOKS)) {
+    const sel = $(what);
+    sel.value = document.documentElement.dataset[what] || '';
+    // A choice saved from a menu entry that is no longer offered: back to
+    // the default.
+    if (sel.selectedIndex < 0) {
+      sel.value = '';
+      delete document.documentElement.dataset[what];
+      try { localStorage.removeItem(key); } catch (e) {}
+    }
+    sel.onchange = () => {
+      const v = sel.value;
+      for (const doc of [document, popup && !popup.closed ? popup.document : null]) {
+        if (!doc) continue;
+        if (v) doc.documentElement.dataset[what] = v; else delete doc.documentElement.dataset[what];
+      }
+      try { v ? localStorage.setItem(key, v) : localStorage.removeItem(key); } catch (e) {}
+      // Labels on the map are cut to fit the font they are drawn in.
+      if (what === 'font') { main.draw(false); if (side) side.draw(false); }
+    };
+  }
+}
+
 function start() {
+  wireLooks();
   const touched = DATA.features.filter((f) => f.s !== 'same').length;
   const changed = KEYS.filter((k) => onMap(k) && F[k].s !== 'same').length;
   $('crate').textContent = DATA.crate;

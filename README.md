@@ -51,8 +51,10 @@ Setup and troubleshooting: [RUNNING.md](RUNNING.md).
   order, coloured by what changed. Two views: **Changes** (only what changed
   and the paths to it) and **Project flow** (the whole program as it is now).
 - **Each function's steps** in plain words — its calls, decisions, loops and
-  the ways it can end — as the main path it normally takes, as every step in
-  order, or as its code.
+  the ways it can end — next to its code, which opens first: as every step in
+  order, or as the main path it normally takes.
+- **Themes** from the Rust book — Light, Rust, Coal, Navy and Ayu; by default
+  Light, or Navy when your system is dark.
 - **A glossary** of the project's types, constants and statics, and for each
   function its variables: where each starts and where it changes.
 - **The project's structure** — folders, files and what each defines — to jump
@@ -87,8 +89,9 @@ Two words the page relies on:
   to one definition is left out of the steps rather than guessed; cross-file
   method calls are matched by unique name, and common `std` names (`len`,
   `new`, `get`, `iter`, …) never are.
-- Calls through trait objects, function pointers or macro-generated code may
-  not show.
+- Calls through trait objects or macro-generated code may not show. A
+  function passed on by name — a route handler in `get(handler)`, a callback —
+  shows as handed over, not as a call made there.
 - Files are found by following `mod` declarations; a module declared inside a
   macro (`cfg_if!`, as in `libc`) is not followed.
 - It shows what the code *says* it does. It does not run anything, so it
