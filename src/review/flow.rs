@@ -100,6 +100,11 @@ pub enum Step {
         fallible: bool,
         /// Followed by `.unwrap()` or `.expect()`: the program crashes if it fails.
         crashes: bool,
+        /// Not called here but passed on by name, for the code it is given to
+        /// to run: a route handler in `get(handler)`, a callback, a task given
+        /// to `spawn`. Holds the name of what receives it — `get` — or is
+        /// empty when it is not passed straight to a call.
+        handed: Option<String>,
         line: usize,
         /// Byte offset of the call, to attach a later `?` to it. Not compared.
         offset: usize,
@@ -209,6 +214,9 @@ pub fn flows(ws: &Workspace, keys: &HashMap<GlobalId, String>) -> HashMap<String
         for r in f.references.iter().filter(|r| r.is_call() && !r.via_macro) {
             calls.insert((r.loc.offset, r.name.as_str()), r);
         }
+        // Functions named without being called — `get(handler)` — by where
+        // the name sits.
+        let values: HashMap<usize, &Reference> = f.references.iter().filter(|r| r.kind == RefKind::ValueRef && !r.via_macro).map(|r| (r.loc.offset, r)).collect();
 
         for s in f.callables() {
             let Some(func) = fns.get(&s.range.0) else { continue };
@@ -218,7 +226,8 @@ pub fn flows(ws: &Workspace, keys: &HashMap<GlobalId, String>) -> HashMap<String
                 mark_tails(&ast::Expr::BlockExpr(body), &mut tails);
             }
             let tracked = func.body().map(|b| decision_state(b.syntax())).unwrap_or_default();
-            let walker = Walker { ws, fid, sym: s.id, keys, calls: &calls, lines: &f.lines, src: &f.src, tails, tracked, loops: RefCell::new(Vec::new()) };
+            let locals = func.syntax().descendants().filter_map(ast::IdentPat::cast).filter_map(|p| p.name()).map(|n| n.text().to_string()).collect();
+            let walker = Walker { ws, fid, sym: s.id, keys, calls: &calls, values: &values, locals, lines: &f.lines, src: &f.src, tails, tracked, loops: RefCell::new(Vec::new()) };
             let mut steps = Vec::new();
             if let Some(body) = func.body() {
                 walker.walk(body.syntax(), &mut steps);
@@ -260,6 +269,10 @@ struct Walker<'a> {
     sym: SymbolId,
     keys: &'a HashMap<GlobalId, String>,
     calls: &'a HashMap<(usize, &'a str), &'a Reference>,
+    values: &'a HashMap<usize, &'a Reference>,
+    /// Names the function binds — parameters, `let`s, patterns. A bare `x`
+    /// that is one of these is the variable, not a function of that name.
+    locals: HashSet<String>,
     lines: &'a LineIndex,
     src: &'a str,
     /// Expressions whose value is what the function returns.
@@ -465,6 +478,17 @@ impl Walker<'_> {
             self.push_call(node, &name, out);
             return;
         }
+        // A path on its own — not the callee of a call, which returned above —
+        // that names one of the user's functions passes it on to be run later.
+        if ast::PathExpr::can_cast(node.kind()) {
+            let offset: usize = node.text_range().start().into();
+            if let Some(r) = self.values.get(&offset).filter(|r| r.path.contains("::") || !self.locals.contains(&r.name)) {
+                if let Some(target) = self.user_target(r) {
+                    out.push(Step::Call { target, args: Vec::new(), fallible: false, crashes: false, handed: Some(receiver(node)), line: r.loc.line, offset });
+                }
+            }
+            return;
+        }
         for child in node.children() {
             self.walk(&child, out);
         }
@@ -554,7 +578,7 @@ impl Walker<'_> {
         inside.sort_by_key(|r| r.loc.offset);
         for r in inside {
             if let Some(target) = self.user_target(r) {
-                out.push(Step::Call { target, args: r.args.clone(), fallible: false, crashes: false, line: r.loc.line, offset: r.loc.offset });
+                out.push(Step::Call { target, args: r.args.clone(), fallible: false, crashes: false, handed: None, line: r.loc.line, offset: r.loc.offset });
             }
         }
 
@@ -571,7 +595,7 @@ impl Walker<'_> {
         let offset: usize = node.text_range().start().into();
         let Some(r) = self.calls.get(&(offset, name)) else { return };
         let Some(target) = self.user_target(r) else { return };
-        out.push(Step::Call { target, args: r.args.clone(), fallible: false, crashes: false, line: r.loc.line, offset });
+        out.push(Step::Call { target, args: r.args.clone(), fallible: false, crashes: false, handed: None, line: r.loc.line, offset });
     }
 
     /// The key of the user function a reference lands on, if it lands on one.
@@ -792,4 +816,21 @@ fn clip_to(s: &str, max: usize) -> String {
 /// Tokens without comments or whitespace: what the compiler sees.
 fn fingerprint(node: &SyntaxNode) -> String {
     node.descendants_with_tokens().filter_map(|e| e.into_token()).filter(|t| t.kind() != SyntaxKind::WHITESPACE && t.kind() != SyntaxKind::COMMENT).map(|t| t.text().to_string()).collect::<Vec<_>>().join(" ")
+}
+
+/// The name of the call an expression is passed to as an argument — `get` for
+/// `get(handler)`, `on_upgrade` for `ws.on_upgrade(handler)` — or empty.
+fn receiver(arg: &SyntaxNode) -> String {
+    let Some(call) = arg.parent().filter(|p| ast::ArgList::can_cast(p.kind())).and_then(|l| l.parent()) else {
+        return String::new();
+    };
+    let name = if let Some(c) = ast::CallExpr::cast(call.clone()) {
+        match c.expr() {
+            Some(ast::Expr::PathExpr(p)) => p.path().and_then(|p| p.segment()).and_then(|s| s.name_ref()).map(|n| n.text().to_string()),
+            _ => None,
+        }
+    } else {
+        ast::MethodCallExpr::cast(call).and_then(|m| m.name_ref()).map(|n| n.text().to_string())
+    };
+    name.unwrap_or_default()
 }

@@ -109,8 +109,9 @@ flowlens . --review
   git history to compare with.
 - **⇢ / ⇣** (horizontal / vertical) sets which way the map flows. The choice is
   remembered in your browser.
-- **Click a box** to select it: it stays where it is, its path and calls stay
-  bright, everything else fades, and the details show its steps. On a big map
+- **Click a box** to select it: it stays where it is, it unfolds the
+  functions it calls, its path and calls stay bright, everything else fades,
+  and the details show its code and steps. On a big map
   (over 40 boxes) the map also collapses to just that box and its neighbours.
   *Focus on this* collapses it on any map; *Show all* or **Esc** undoes it.
 - **The details icons** (panel on the right, left, bottom, or in its own
@@ -121,12 +122,16 @@ flowlens . --review
   the panel so the map gets the whole screen; clicking a box then opens its
   details in a box over the map (✕ or **Esc** closes it). Click any side to
   bring the panel back.
-- **+N** on a box shows the functions it calls.
+- **+N** on a box shows the functions it calls; **−** folds them back, with
+  everything opened below them.
 - **⇱** (hover a box) takes the flow starting at that box out into a side
   space next to the map, so a big flow can be read on its own. ✕ on its tab
   puts it back.
 - **Drag** to move, **scroll** to zoom, **Fit** to see everything.
 - **`/`** jumps to the search box; **Esc** clears the selection.
+- **Theme** and **Font** (top right) change the look — the Rust book's
+  themes, Grotesk or Monospace — and are remembered in your browser.
+  **Signs** explains every sign and colour on the page.
 
 The page is a single file with nothing to install and no internet needed. You
 can send it to someone else as is.

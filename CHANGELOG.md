@@ -6,6 +6,42 @@ All notable changes to flowlens are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-14
+
+### Added
+
+- **Route handlers and other functions passed by name** — `get(handler)`,
+  callbacks, tasks given to `spawn` — are linked: a step *Hand handler to
+  `get`* with an arrow on the map. A change inside a handler now marks its
+  feature as changed.
+- **Clicking a box unfolds what it calls**, as its +N would.
+- **Links in the code view**: a call to one of your functions opens it; a
+  variable or glossary value shows where it starts.
+- **Themes** from the Rust book — Light, Rust, Coal, Navy and Ayu — and a
+  **Font** menu (Grotesk, Monospace), remembered in the browser.
+- A logo, in the header and as the browser-tab icon.
+
+### Changed
+
+- The header has two rows: the project and the page settings (Theme, Font,
+  Signs) on top, the map tools below. *What the signs mean* moved from the
+  Summary into the header.
+- A function's details open on its **Code**, then *All steps* and *Main
+  path*. A wide panel uses two columns: takes, gives back and how it can end
+  across the top; the code beside its variables; used by and uses at the end.
+- The code is shown whole — long lines wrap and indentation scales to fit —
+  with no scrolling box of its own; one line-number column unless the
+  function changed.
+- A function with no steps of its own shows its code instead of an empty
+  space.
+
+### Fixed
+
+- **−** on a box now folds everything opened below it.
+- Names on the map no longer run past their box in wider fonts; for
+  `Type::method` the method is kept.
+- No square outline around a clicked (rounded) box.
+
 ## [0.1.1] - 2026-10-12
 
 ### Added
@@ -42,6 +78,7 @@ All notable changes to flowlens are listed here. The format follows
 
 First release.
 
-[Unreleased]: https://github.com/mitanshu-23/flowlens/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/mitanshu-23/flowlens/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/mitanshu-23/flowlens/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/mitanshu-23/flowlens/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mitanshu-23/flowlens/releases/tag/v0.1.0

@@ -68,6 +68,42 @@ fn feature<'a>(r: &'a Review, key: &str) -> &'a review::Feature {
 // ------------------------------------------------------------------ steps
 
 #[test]
+fn a_function_passed_by_name_is_handed_over_not_called() {
+    let src = r#"
+fn get<F>(f: F) -> F { f }
+fn handler() {}
+fn block() {}
+fn routes() {
+    let block = 1;
+    let _ = block;
+    get(handler);
+    handler();
+}
+fn main() { routes(); }
+"#;
+    let steps = steps_of(src, "routes");
+    let calls: Vec<(&str, Option<&str>)> = steps
+        .iter()
+        .filter_map(|s| match s {
+            Step::Call { target, handed, .. } => Some((target.as_str(), handed.as_deref())),
+            _ => None,
+        })
+        .collect();
+    // `get` itself is called; `handler` is passed to it, then called; the
+    // local `block` is a variable, not the function of that name.
+    assert_eq!(calls, vec![("crate::handler", Some("get")), ("crate::get", None), ("crate::handler", None)]);
+}
+
+#[test]
+fn a_change_to_a_handed_over_function_reaches_its_feature() {
+    let before = "fn on(_: fn()) {}\nfn handler() {}\nfn main() { on(handler); }\n";
+    let after = "fn on(_: fn()) {}\nfn handler() { let _ = 1; }\nfn main() { on(handler); }\n";
+    let r = compare(before, after);
+    assert_eq!(feature(&r, "crate::main").changed_inside, vec!["crate::handler".to_string()]);
+    assert!(r.features.iter().all(|f| f.key != "crate::handler"), "a handler is reached, not a feature of its own");
+}
+
+#[test]
 fn early_exits_are_steps_even_with_no_calls() {
     let steps = steps_of(
         r#"

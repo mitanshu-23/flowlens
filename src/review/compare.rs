@@ -92,7 +92,7 @@ pub fn one_sided(steps: &[Step], mark: Mark) -> Vec<Row> {
 /// A pair of steps that line up.
 fn matched(b: &Step, a: &Step) -> Row {
     let mark = match (b, a) {
-        (Step::Call { args: ba, fallible: bf, crashes: bc, .. }, Step::Call { args: aa, fallible: af, crashes: ac, .. }) if ba != aa || bf != af || bc != ac => Mark::Changed,
+        (Step::Call { args: ba, fallible: bf, crashes: bc, handed: bh, .. }, Step::Call { args: aa, fallible: af, crashes: ac, handed: ah, .. }) if ba != aa || bf != af || bc != ac || bh != ah => Mark::Changed,
         (Step::Block { header: bh, on: bo, .. }, Step::Block { header: ah, on: ao, .. }) if bh != ah || bo != ao => Mark::Changed,
         (Step::Exit { detail: bd, .. }, Step::Exit { detail: ad, .. }) if bd != ad => Mark::Changed,
         (Step::Set { op: bo, value: bv, .. }, Step::Set { op: ao, value: av, .. }) if bo != ao || bv != av => Mark::Changed,
